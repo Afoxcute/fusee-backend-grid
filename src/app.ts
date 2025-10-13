@@ -2,8 +2,10 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import swaggerUi from 'swagger-ui-express';
 import Logger from './utils/logger';
 import { config } from './config/env';
+import { swaggerSpec } from './config/swagger';
 
 const app = express();
 
@@ -19,14 +21,34 @@ app.use((req, res, next) => {
   next();
 });
 
+// Swagger documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 // Basic route
+/**
+ * @swagger
+ * /health:
+ *   get:
+ *     summary: Health check endpoint
+ *     description: Returns the current status of the API server
+ *     tags: [Health]
+ *     responses:
+ *       200:
+ *         description: Server is healthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/HealthResponse'
+ */
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
 // Add after basic routes
 import userRoutes from './routes/user.routes';
+import postRoutes from './routes/post.routes';
 app.use('/api/users', userRoutes);
+app.use('/api/posts', postRoutes);
 
 // Error handling (place last)
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

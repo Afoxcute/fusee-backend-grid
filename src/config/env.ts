@@ -2,5 +2,8 @@
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
-  // Add DB, API keys, etc. here
+  database: {
+    url: process.env.DATABASE_URL || 'postgresql://username:password@localhost:5432/fusee_backend',
+  },
+  // Add API keys, etc. here
 };

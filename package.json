@@ -7,13 +7,19 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "db:seed": "ts-node prisma/seed.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@prisma/client": "^5.22.0",
     "@types/jest": "^30.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
@@ -23,13 +29,18 @@
     "jest": "^30.2.0",
     "joi": "^18.0.1",
     "supertest": "^7.1.4",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "ts-jest": "^29.4.5",
     "winston": "^3.18.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
     "@types/node": "^24.7.2",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.6",
     "nodemon": "^3.1.10",
+    "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }

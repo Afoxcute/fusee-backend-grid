@@ -1,27 +1,27 @@
 import { Router } from 'express';
-import * as userController from '../controllers/user.controller';
+import * as postController from '../controllers/post.controller';
 
 const router = Router();
 
 /**
  * @swagger
- * /api/users:
+ * /api/posts:
  *   get:
- *     summary: Get all users
- *     description: Retrieve a list of all users in the system
- *     tags: [Users]
+ *     summary: Get all posts
+ *     description: Retrieve a list of all posts with their authors
+ *     tags: [Posts]
  *     responses:
  *       200:
- *         description: List of users retrieved successfully
+ *         description: List of posts retrieved successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 users:
+ *                 posts:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/User'
+ *                     $ref: '#/components/schemas/Post'
  *       500:
  *         description: Internal server error
  *         content:
@@ -29,39 +29,39 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/', userController.getUsers);
+router.get('/', postController.getPosts);
 
 /**
  * @swagger
- * /api/users:
+ * /api/posts:
  *   post:
- *     summary: Create a new user
- *     description: Create a new user in the system
- *     tags: [Users]
+ *     summary: Create a new post
+ *     description: Create a new post in the system
+ *     tags: [Posts]
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/CreateUserRequest'
+ *             $ref: '#/components/schemas/CreatePostRequest'
  *     responses:
  *       201:
- *         description: User created successfully
+ *         description: Post created successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 user:
- *                   $ref: '#/components/schemas/User'
+ *                 post:
+ *                   $ref: '#/components/schemas/Post'
  *       400:
  *         description: Bad request - Invalid input data
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *       409:
- *         description: Conflict - User already exists
+ *       404:
+ *         description: Author not found
  *         content:
  *           application/json:
  *             schema:
@@ -73,34 +73,34 @@ router.get('/', userController.getUsers);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/', userController.createUser);
+router.post('/', postController.createPost);
 
 /**
  * @swagger
- * /api/users/{id}:
+ * /api/posts/{id}:
  *   get:
- *     summary: Get user by ID
- *     description: Retrieve a specific user by their ID
- *     tags: [Users]
+ *     summary: Get post by ID
+ *     description: Retrieve a specific post by its ID
+ *     tags: [Posts]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *         description: User ID
+ *         description: Post ID
  *     responses:
  *       200:
- *         description: User retrieved successfully
+ *         description: Post retrieved successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 user:
- *                   $ref: '#/components/schemas/User'
+ *                 post:
+ *                   $ref: '#/components/schemas/Post'
  *       404:
- *         description: User not found
+ *         description: Post not found
  *         content:
  *           application/json:
  *             schema:
@@ -112,46 +112,40 @@ router.post('/', userController.createUser);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/:id', userController.getUserById);
+router.get('/:id', postController.getPostById);
 
 /**
  * @swagger
- * /api/users/{id}:
+ * /api/posts/{id}:
  *   put:
- *     summary: Update user
- *     description: Update an existing user's information
- *     tags: [Users]
+ *     summary: Update post
+ *     description: Update an existing post's information
+ *     tags: [Posts]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *         description: User ID
+ *         description: Post ID
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/CreateUserRequest'
+ *             $ref: '#/components/schemas/UpdatePostRequest'
  *     responses:
  *       200:
- *         description: User updated successfully
+ *         description: Post updated successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 user:
- *                   $ref: '#/components/schemas/User'
+ *                 post:
+ *                   $ref: '#/components/schemas/Post'
  *       404:
- *         description: User not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       409:
- *         description: Conflict - Email already exists
+ *         description: Post not found
  *         content:
  *           application/json:
  *             schema:
@@ -163,27 +157,27 @@ router.get('/:id', userController.getUserById);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/:id', userController.updateUser);
+router.put('/:id', postController.updatePost);
 
 /**
  * @swagger
- * /api/users/{id}:
+ * /api/posts/{id}:
  *   delete:
- *     summary: Delete user
- *     description: Delete a user from the system
- *     tags: [Users]
+ *     summary: Delete post
+ *     description: Delete a post from the system
+ *     tags: [Posts]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *         description: User ID
+ *         description: Post ID
  *     responses:
  *       204:
- *         description: User deleted successfully
+ *         description: Post deleted successfully
  *       404:
- *         description: User not found
+ *         description: Post not found
  *         content:
  *           application/json:
  *             schema:
@@ -195,6 +189,6 @@ router.put('/:id', userController.updateUser);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.delete('/:id', userController.deleteUser);
+router.delete('/:id', postController.deletePost);
 
 export default router;
