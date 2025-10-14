@@ -1,6 +1,15 @@
 import { Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import Logger from '../utils/logger';
+import gridClient from '../lib/squad';
+import { v4 as uuidv4 } from 'uuid';
+import { z } from 'zod';
+import {
+  savePending,
+  getPending,
+  removePending,
+  PENDING_TTL_MS,
+} from '../lib/gridSessions';
 
 export const getUsers = async (req: Request, res: Response) => {
   try {
@@ -13,7 +22,7 @@ export const getUsers = async (req: Request, res: Response) => {
         updatedAt: true,
       },
     });
-    
+
     Logger.info(`Retrieved ${users.length} users`);
     res.json({ users });
   } catch (error) {
@@ -37,7 +46,9 @@ export const createUser = async (req: Request, res: Response) => {
     });
 
     if (existingUser) {
-      return res.status(409).json({ error: 'User with this email already exists' });
+      return res
+        .status(409)
+        .json({ error: 'User with this email already exists' });
     }
 
     const user = await prisma.user.create({
@@ -158,5 +169,78 @@ export const deleteUser = async (req: Request, res: Response) => {
   } catch (error) {
     Logger.error('Error deleting user:', error);
     res.status(500).json({ error: 'Failed to delete user' });
+  }
+};
+
+export const initiateGridAccount = async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      email: z.string().email(),
+      name: z.string().max(100).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    const { name, email } = parsed.data;
+
+    const response = await gridClient.createAccount({ email });
+    const user = response.data;
+
+    const sessionSecrets = await gridClient.generateSessionSecrets();
+
+    const pendingKey = uuidv4();
+    const createdAt = Date.now();
+    await savePending(pendingKey, { user, sessionSecrets, createdAt });
+
+    const expiresAt = new Date(createdAt + PENDING_TTL_MS).toISOString();
+    const maskedKey = `${pendingKey.slice(0, 8)}...${pendingKey.slice(-4)}`;
+
+    Logger.info(
+      `Initiated Grid account for ${email}, pendingKey=${pendingKey}`
+    );
+    // Frontend-friendly payload: opaque key, masked preview, and expiry info
+    res.status(201).json({ pendingKey, maskedKey, expiresAt });
+  } catch (error) {
+    Logger.error('Error initiating Grid account:', error);
+    res.status(500).json({ error: 'Failed to initiate Grid account' });
+  }
+};
+
+export const completeGridAccount = async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      pendingKey: z.string().uuid(),
+      otpCode: z.string().regex(/^[0-9]{6}$/),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    const { pendingKey, otpCode } = parsed.data;
+
+    const pending = await getPending(pendingKey);
+    if (!pending)
+      return res
+        .status(410)
+        .json({ error: 'Pending session not found or expired' });
+
+    const authResult = await gridClient.completeAuthAndCreateAccount({
+      user: pending.user,
+      otpCode,
+      sessionSecrets: pending.sessionSecrets,
+    });
+
+    if (authResult?.success) {
+      await removePending(pendingKey);
+      Logger.info(`Grid account created: ${authResult.data?.address}`);
+      return res.status(201).json({ data: authResult.data });
+    }
+
+    Logger.error('Grid auth failed:', authResult);
+    res
+      .status(400)
+      .json({ error: 'Grid authentication failed', details: authResult });
+  } catch (error) {
+    Logger.error('Error completing Grid account:', error);
+    res.status(500).json({ error: 'Failed to complete Grid account' });
   }
 };
