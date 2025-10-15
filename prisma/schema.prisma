@@ -11,25 +11,67 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  posts     Post[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  email       String   @unique
+  firstName   String
+  lastName    String
+  middleName  String?  @unique
+  phoneNumber String?  @unique
+  walletAddress String? @unique
+  role        UserRole @default(USER)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@map("users")
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Admin {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  firstName   String
+  lastName    String
+  walletAddress String? @unique
+  publicKey   String? @unique  // Store the public key from keypair
+  secretKey   String?          // Store the secret key (encrypted in production)
+  permissions AdminPermission[]
+  isActive    Boolean  @default(true)
+  lastActivityAt DateTime @default(now())
+  lastVoteActivityAt DateTime?
+  lastExecuteActivityAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  @@map("posts")
+  @@map("admins")
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  userEmail   String
+  adminEmails String[] // Array of admin emails who can vote/execute
+  status      TransactionStatus @default(PENDING)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("transactions")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum AdminPermission {
+  CAN_INITIATE
+  CAN_VOTE
+  CAN_EXECUTE
+  CAN_MANAGE_USERS
+  CAN_MANAGE_ADMINS
+}
+
+enum TransactionStatus {
+  PENDING
+  APPROVED
+  EXECUTED
+  REJECTED
 }

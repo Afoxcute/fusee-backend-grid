@@ -3,24 +3,124 @@ import prisma from '../lib/prisma';
 import Logger from '../utils/logger';
 import gridClient from '../lib/squad';
 import { v4 as uuidv4 } from 'uuid';
-import { z } from 'zod';
+import { config } from '../config/env';
 import {
   savePending,
   getPending,
   removePending,
   PENDING_TTL_MS,
 } from '../lib/gridSessions';
+import { addToRetryQueue } from '../services/retry.service';
+import {
+  createUserSchema,
+  updateUserSchema,
+  initiateGridAccountSchema,
+  completeGridAccountSchema,
+  CreateUserInput,
+  UpdateUserInput,
+  InitiateGridAccountInput,
+  CompleteGridAccountInput,
+} from '../schemas/user.schemas';
+
+// Helper function to extract wallet address from Grid response
+const extractWalletAddress = (authResult: any): string => {
+  try {
+    // First try to get from policies.signers[0].address (primary signer)
+    if (authResult?.data?.policies?.signers?.[0]?.address) {
+      return authResult.data.policies.signers[0].address;
+    }
+    
+    // Fallback to authentication[0].session.Privy.session.wallets[0].address
+    if (authResult?.data?.authentication?.[0]?.session?.Privy?.session?.wallets?.[0]?.address) {
+      return authResult.data.authentication[0].session.Privy.session.wallets[0].address;
+    }
+    
+    // Last fallback to the main address field
+    if (authResult?.data?.address) {
+      return authResult.data.address;
+    }
+    
+    Logger.warn('Could not extract wallet address from Grid response');
+    return '';
+  } catch (error) {
+    Logger.error('Error extracting wallet address:', error);
+    return '';
+  }
+};
+
+// Helper function to check uniqueness of user fields
+const checkUserUniqueness = async (data: {
+  email?: string;
+  middleName?: string;
+  phoneNumber?: string;
+  walletAddress?: string;
+  excludeUserId?: string;
+}) => {
+  const conflicts: string[] = [];
+
+  // Check email uniqueness
+  if (data.email) {
+    const existingEmail = await prisma.user.findUnique({
+      where: { email: data.email },
+    });
+    if (existingEmail && existingEmail.id !== data.excludeUserId) {
+      conflicts.push('email');
+    }
+  }
+
+  // Check middleName uniqueness (if provided and not empty)
+  if (data.middleName && data.middleName.trim() !== '') {
+    const existingMiddleName = await prisma.user.findFirst({
+      where: { 
+        middleName: data.middleName,
+        ...(data.excludeUserId && { id: { not: data.excludeUserId } })
+      } as any, // Type assertion to handle Prisma client type issues
+    });
+    if (existingMiddleName) {
+      conflicts.push('middleName');
+    }
+  }
+
+  // Check phoneNumber uniqueness (if provided and not empty)
+  if (data.phoneNumber && data.phoneNumber.trim() !== '') {
+    const existingPhoneNumber = await prisma.user.findUnique({
+      where: { phoneNumber: data.phoneNumber },
+    });
+    if (existingPhoneNumber && existingPhoneNumber.id !== data.excludeUserId) {
+      conflicts.push('phoneNumber');
+    }
+  }
+
+  // Check walletAddress uniqueness
+  if (data.walletAddress) {
+    const existingWalletAddress = await prisma.user.findFirst({
+      where: { 
+        walletAddress: data.walletAddress,
+        ...(data.excludeUserId && { id: { not: data.excludeUserId } })
+      } as any, // Type assertion to handle Prisma client type issues
+    });
+    if (existingWalletAddress) {
+      conflicts.push('walletAddress');
+    }
+  }
+
+  return conflicts;
+};
 
 export const getUsers = async (req: Request, res: Response) => {
   try {
     const users = await prisma.user.findMany({
       select: {
         id: true,
-        name: true,
         email: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        phoneNumber: true,
+        walletAddress: true,
         createdAt: true,
         updatedAt: true,
-      },
+      } as any, // Type assertion to handle Prisma client type issues
     });
 
     Logger.info(`Retrieved ${users.length} users`);
@@ -33,36 +133,57 @@ export const getUsers = async (req: Request, res: Response) => {
 
 export const createUser = async (req: Request, res: Response) => {
   try {
-    const { name, email } = req.body;
+    const validatedData = req.body as CreateUserInput;
+    const { email, firstName, lastName, middleName, phoneNumber } = validatedData;
 
-    // Basic validation
-    if (!name || !email) {
-      return res.status(400).json({ error: 'Name and email are required' });
-    }
-
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
+    // Check uniqueness of all fields (excluding walletAddress since it's not provided)
+    const conflicts = await checkUserUniqueness({
+      email,
+      middleName,
+      phoneNumber,
     });
 
-    if (existingUser) {
-      return res
-        .status(409)
-        .json({ error: 'User with this email already exists' });
+    if (conflicts.length > 0) {
+      const conflictMessages = conflicts.map(field => {
+        switch (field) {
+          case 'email':
+            return 'A user with this email already exists';
+          case 'middleName':
+            return 'A user with this middle name already exists';
+          case 'phoneNumber':
+            return 'A user with this phone number already exists';
+          default:
+            return `A user with this ${field} already exists`;
+        }
+      });
+
+      return res.status(409).json({
+        error: 'User creation failed due to conflicts',
+        conflicts: conflictMessages,
+        fields: conflicts,
+      });
     }
 
     const user = await prisma.user.create({
       data: {
-        name,
         email,
-      },
+        firstName,
+        lastName,
+        middleName: middleName && middleName.trim() !== '' ? middleName : null,
+        phoneNumber: phoneNumber && phoneNumber.trim() !== '' ? phoneNumber : null,
+        walletAddress: null, // Will be set when Grid account is created
+      } as any, // Type assertion to handle Prisma client type issues
       select: {
         id: true,
-        name: true,
         email: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        phoneNumber: true,
+        walletAddress: true,
         createdAt: true,
         updatedAt: true,
-      },
+      } as any, // Type assertion to handle Prisma client type issues
     });
 
     Logger.info(`Created user: ${user.email}`);
@@ -81,8 +202,11 @@ export const getUserById = async (req: Request, res: Response) => {
       where: { id },
       select: {
         id: true,
-        name: true,
         email: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        phoneNumber: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -102,7 +226,8 @@ export const getUserById = async (req: Request, res: Response) => {
 export const updateUser = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, email } = req.body;
+    const validatedData = req.body as UpdateUserInput;
+    const { email, firstName, lastName, middleName, phoneNumber } = validatedData;
 
     // Check if user exists
     const existingUser = await prisma.user.findUnique({
@@ -124,16 +249,37 @@ export const updateUser = async (req: Request, res: Response) => {
       }
     }
 
+    // Check if phone number is being changed and if it already exists
+    if (phoneNumber && phoneNumber !== existingUser.phoneNumber) {
+      const phoneExists = await prisma.user.findUnique({
+        where: { phoneNumber },
+      });
+
+      if (phoneExists) {
+        return res.status(409).json({ error: 'Phone number already exists' });
+      }
+    }
+
     const user = await prisma.user.update({
       where: { id },
       data: {
-        ...(name && { name }),
         ...(email && { email }),
+        ...(firstName && { firstName }),
+        ...(lastName && { lastName }),
+        ...(middleName !== undefined && { 
+          middleName: middleName && middleName.trim() !== '' ? middleName : null 
+        }),
+        ...(phoneNumber !== undefined && { 
+          phoneNumber: phoneNumber && phoneNumber.trim() !== '' ? phoneNumber : null 
+        }),
       },
       select: {
         id: true,
-        name: true,
         email: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        phoneNumber: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -174,14 +320,8 @@ export const deleteUser = async (req: Request, res: Response) => {
 
 export const initiateGridAccount = async (req: Request, res: Response) => {
   try {
-    const schema = z.object({
-      email: z.string().email(),
-      name: z.string().max(100).optional(),
-    });
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success)
-      return res.status(400).json({ error: parsed.error.issues[0].message });
-    const { name, email } = parsed.data;
+    const validatedData = req.body as InitiateGridAccountInput;
+    const { email, firstName, lastName, middleName, phoneNumber } = validatedData;
 
     const response = await gridClient.createAccount({ email });
     const user = response.data;
@@ -190,7 +330,18 @@ export const initiateGridAccount = async (req: Request, res: Response) => {
 
     const pendingKey = uuidv4();
     const createdAt = Date.now();
-    await savePending(pendingKey, { user, sessionSecrets, createdAt });
+    await savePending(pendingKey, { 
+      user, 
+      sessionSecrets, 
+      createdAt,
+      userData: {
+        email,
+        firstName,
+        lastName,
+        middleName: middleName && middleName.trim() !== '' ? middleName : null,
+        phoneNumber: phoneNumber && phoneNumber.trim() !== '' ? phoneNumber : null,
+      }
+    });
 
     const expiresAt = new Date(createdAt + PENDING_TTL_MS).toISOString();
     const maskedKey = `${pendingKey.slice(0, 8)}...${pendingKey.slice(-4)}`;
@@ -208,14 +359,8 @@ export const initiateGridAccount = async (req: Request, res: Response) => {
 
 export const completeGridAccount = async (req: Request, res: Response) => {
   try {
-    const schema = z.object({
-      pendingKey: z.string().uuid(),
-      otpCode: z.string().regex(/^[0-9]{6}$/),
-    });
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success)
-      return res.status(400).json({ error: parsed.error.issues[0].message });
-    const { pendingKey, otpCode } = parsed.data;
+    const validatedData = req.body as CompleteGridAccountInput;
+    const { pendingKey, otpCode } = validatedData;
 
     const pending = await getPending(pendingKey);
     if (!pending)
@@ -223,6 +368,36 @@ export const completeGridAccount = async (req: Request, res: Response) => {
         .status(410)
         .json({ error: 'Pending session not found or expired' });
 
+    // Get admins with CAN_VOTE and CAN_EXECUTE permissions for this user
+    const admins = await prisma.admin.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          {
+            permissions: {
+              has: 'CAN_VOTE',
+            },
+          },
+          {
+            permissions: {
+              has: 'CAN_EXECUTE',
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        publicKey: true,
+        permissions: true,
+        isActive: true,
+      } as any, // Type assertion to handle new fields
+    });
+
+    // Create Grid account first (without admin policies initially)
     const authResult = await gridClient.completeAuthAndCreateAccount({
       user: pending.user,
       otpCode,
@@ -230,6 +405,116 @@ export const completeGridAccount = async (req: Request, res: Response) => {
     });
 
     if (authResult?.success) {
+      // Extract wallet address from Grid response
+      const walletAddress = extractWalletAddress(authResult);
+      
+      if (!walletAddress) {
+        Logger.error('Failed to extract wallet address from Grid response');
+        return res.status(500).json({ error: 'Failed to extract wallet address from Grid account' });
+      }
+
+      // Update Grid account with admin policies if admins are available
+      if (admins.length > 0) {
+        try {
+          // Build signers configuration with actual user wallet address
+          const signers = [
+            {
+              address: walletAddress,
+              role: 'primary',
+              permissions: ['CAN_INITIATE']
+            },
+            ...admins.map(admin => ({
+              address: admin.publicKey || admin.walletAddress || '', // Use publicKey first, fallback to walletAddress
+              role: 'primary', // Grid API only accepts 'primary' or 'backup'
+              permissions: (admin.permissions as any[]).filter((p: any) => ['CAN_VOTE', 'CAN_EXECUTE'].includes(p)) // Remove CAN_INITIATE for admins
+            }))
+          ].filter(signer => signer.address); // Only include signers with wallet addresses
+
+          if (signers.length > 1 && authResult.data?.address) {
+            // Calculate threshold with validation
+            const calculatedThreshold = Math.min(config.admin.votingThreshold, signers.length);
+            const validatedThreshold = Math.max(
+              config.admin.minThreshold,
+              Math.min(config.admin.maxThreshold, calculatedThreshold)
+            );
+            
+            // Prepare update configuration with time delay
+            const updateConfig: any = {
+              signers: signers.map(signer => ({
+                address: signer.address,
+                role: signer.role as ('primary' | 'backup'),
+                permissions: signer.permissions as ('CAN_INITIATE' | 'CAN_VOTE' | 'CAN_EXECUTE')[],
+                provider: 'privy' as const,
+              })),
+              threshold: validatedThreshold,
+            };
+
+            // Add time delay if enabled
+            if (config.admin.timeDelay.enabled) {
+              const validatedDelaySeconds = Math.max(
+                config.admin.timeDelay.minDelaySeconds,
+                Math.min(config.admin.timeDelay.maxDelaySeconds, config.admin.timeDelay.delaySeconds)
+              );
+              updateConfig.timeLock = validatedDelaySeconds;
+            }
+
+            // Update Grid account with admin policies using updateAccount method
+            await gridClient.updateAccount(authResult.data.address, updateConfig);
+            
+            const delayInfo = config.admin.timeDelay.enabled 
+              ? `, time delay: ${updateConfig.timeLock}s` 
+              : '';
+            Logger.info(`Updated Grid account ${authResult.data.address} with ${signers.length} signers including ${admins.length} admins (threshold: ${validatedThreshold}${delayInfo})`);
+          }
+        } catch (policyError) {
+          Logger.error('Error updating Grid account policies:', policyError);
+          // Don't fail the account creation if policy update fails
+        }
+      }
+
+      // Create user in our database if userData exists
+      if (pending.userData) {
+        const { email, firstName, lastName, middleName, phoneNumber } = pending.userData;
+        
+        try {
+          // Check if user already exists
+          const existingUser = await prisma.user.findUnique({
+            where: { email },
+          });
+
+          if (!existingUser) {
+            await prisma.user.create({
+              data: {
+                email,
+                firstName,
+                lastName,
+                middleName,
+                phoneNumber,
+                walletAddress, // Use extracted wallet address
+              },
+            });
+            Logger.info(`Created user in database: ${email} with wallet: ${walletAddress}`);
+          }
+        } catch (dbError) {
+          Logger.error('Error creating user in database:', dbError);
+          
+          // Add to retry queue if Grid account was created successfully
+          if (walletAddress) {
+            Logger.info(`Adding ${walletAddress} to retry queue due to database error`);
+            addToRetryQueue(walletAddress, {
+              email: email,
+              firstName: firstName,
+              lastName: lastName,
+              middleName: middleName,
+              phoneNumber: phoneNumber,
+              walletAddress: walletAddress,
+            });
+          }
+          
+          // Don't fail the Grid account creation if DB creation fails
+        }
+      }
+
       await removePending(pendingKey);
       Logger.info(`Grid account created: ${authResult.data?.address}`);
       return res.status(201).json({ data: authResult.data });

@@ -10,7 +10,10 @@ async function main() {
     update: {},
     create: {
       email: 'john.doe@example.com',
-      name: 'John Doe',
+      firstName: 'John',
+      lastName: 'Doe',
+      middleName: 'Michael',
+      phoneNumber: '+1234567890',
     },
   });
 
@@ -19,7 +22,9 @@ async function main() {
     update: {},
     create: {
       email: 'jane.smith@example.com',
-      name: 'Jane Smith',
+      firstName: 'Jane',
+      lastName: 'Smith',
+      phoneNumber: '+1987654321',
     },
   });
 

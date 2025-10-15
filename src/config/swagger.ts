@@ -28,23 +28,41 @@ const options: swaggerJsdoc.Options = {
       schemas: {
         User: {
           type: 'object',
-          required: ['name', 'email'],
+          required: ['id', 'email', 'firstName', 'lastName', 'createdAt', 'updatedAt'],
           properties: {
             id: {
               type: 'string',
               description: 'Unique identifier for the user',
               example: '123e4567-e89b-12d3-a456-426614174000',
             },
-            name: {
-              type: 'string',
-              description: 'User full name',
-              example: 'John Doe',
-            },
             email: {
               type: 'string',
               format: 'email',
               description: 'User email address',
               example: 'john.doe@example.com',
+            },
+            firstName: {
+              type: 'string',
+              description: 'User first name',
+              example: 'John',
+            },
+            lastName: {
+              type: 'string',
+              description: 'User last name',
+              example: 'Doe',
+            },
+            middleName: {
+              type: 'string',
+              description: 'User middle name',
+              example: 'Michael',
+              nullable: true,
+            },
+            phoneNumber: {
+              type: 'string',
+              description: 'User phone number (supports international formats)',
+              example: '+2348101872122',
+              pattern: '^(\\+?[1-9]\\d{1,14})|(\\(?[0-9]{3}\\)?[-.\\s]?[0-9]{3}[-.\\s]?[0-9]{4})$',
+              nullable: true,
             },
             createdAt: {
               type: 'string',
@@ -62,110 +80,39 @@ const options: swaggerJsdoc.Options = {
         },
         CreateUserRequest: {
           type: 'object',
-          required: ['name', 'email'],
+          required: ['email', 'firstName', 'lastName'],
           properties: {
-            name: {
-              type: 'string',
-              description: 'User full name',
-              example: 'John Doe',
-            },
             email: {
               type: 'string',
               format: 'email',
               description: 'User email address',
               example: 'john.doe@example.com',
             },
-          },
-        },
-        Post: {
-          type: 'object',
-          required: ['id', 'title', 'authorId', 'published', 'createdAt', 'updatedAt'],
-          properties: {
-            id: {
+            firstName: {
               type: 'string',
-              description: 'Unique identifier for the post',
-              example: '123e4567-e89b-12d3-a456-426614174000',
+              description: 'User first name',
+              example: 'John',
+              minLength: 1,
+              maxLength: 50,
             },
-            title: {
+            lastName: {
               type: 'string',
-              description: 'Post title',
-              example: 'Getting Started with Prisma',
+              description: 'User last name',
+              example: 'Doe',
+              minLength: 1,
+              maxLength: 50,
             },
-            content: {
+            middleName: {
               type: 'string',
-              description: 'Post content',
-              example: 'This is the content of the post...',
+              description: 'User middle name (optional)',
+              example: 'Michael',
+              maxLength: 50,
             },
-            published: {
-              type: 'boolean',
-              description: 'Whether the post is published',
-              example: true,
-            },
-            authorId: {
+            phoneNumber: {
               type: 'string',
-              description: 'ID of the post author',
-              example: '123e4567-e89b-12d3-a456-426614174000',
-            },
-            author: {
-              $ref: '#/components/schemas/User',
-            },
-            createdAt: {
-              type: 'string',
-              format: 'date-time',
-              description: 'Post creation timestamp',
-              example: '2024-01-01T00:00:00.000Z',
-            },
-            updatedAt: {
-              type: 'string',
-              format: 'date-time',
-              description: 'Post last update timestamp',
-              example: '2024-01-01T00:00:00.000Z',
-            },
-          },
-        },
-        CreatePostRequest: {
-          type: 'object',
-          required: ['title', 'authorId'],
-          properties: {
-            title: {
-              type: 'string',
-              description: 'Post title',
-              example: 'Getting Started with Prisma',
-            },
-            content: {
-              type: 'string',
-              description: 'Post content',
-              example: 'This is the content of the post...',
-            },
-            published: {
-              type: 'boolean',
-              description: 'Whether the post is published',
-              example: true,
-            },
-            authorId: {
-              type: 'string',
-              description: 'ID of the post author',
-              example: '123e4567-e89b-12d3-a456-426614174000',
-            },
-          },
-        },
-        UpdatePostRequest: {
-          type: 'object',
-          properties: {
-            title: {
-              type: 'string',
-              description: 'Post title',
-              example: 'Updated Post Title',
-            },
-            content: {
-              type: 'string',
-              description: 'Post content',
-              example: 'Updated post content...',
-            },
-            published: {
-              type: 'boolean',
-              description: 'Whether the post is published',
-              example: false,
+              description: 'User phone number (optional)',
+              example: '+1234567890',
+              pattern: '^(\\+?1[-.\\s]?)?\\(?([0-9]{3})\\)?[-.\\s]?([0-9]{3})[-.\\s]?([0-9]{4})$',
             },
           },
         },
@@ -191,6 +138,245 @@ const options: swaggerJsdoc.Options = {
               type: 'string',
               format: 'date-time',
               description: 'Current server timestamp',
+              example: '2024-01-01T00:00:00.000Z',
+            },
+            uptime: {
+              type: 'number',
+              description: 'Server uptime in seconds',
+              example: 3600,
+            },
+            environment: {
+              type: 'string',
+              description: 'Current environment',
+              example: 'development',
+            },
+            version: {
+              type: 'string',
+              description: 'API version',
+              example: '1.0.0',
+            },
+          },
+        },
+        UpdateUserRequest: {
+          type: 'object',
+          properties: {
+            email: {
+              type: 'string',
+              format: 'email',
+              description: 'User email address',
+              example: 'john.doe@example.com',
+            },
+            firstName: {
+              type: 'string',
+              description: 'User first name',
+              example: 'John',
+              minLength: 1,
+              maxLength: 50,
+            },
+            lastName: {
+              type: 'string',
+              description: 'User last name',
+              example: 'Doe',
+              minLength: 1,
+              maxLength: 50,
+            },
+            middleName: {
+              type: 'string',
+              description: 'User middle name (optional)',
+              example: 'Michael',
+              maxLength: 50,
+            },
+            phoneNumber: {
+              type: 'string',
+              description: 'User phone number (optional)',
+              example: '+1234567890',
+              pattern: '^(\\+?1[-.\\s]?)?\\(?([0-9]{3})\\)?[-.\\s]?([0-9]{3})[-.\\s]?([0-9]{4})$',
+            },
+          },
+        },
+        Admin: {
+          type: 'object',
+          required: ['id', 'email', 'firstName', 'lastName', 'permissions', 'isActive', 'createdAt', 'updatedAt'],
+          properties: {
+            id: {
+              type: 'string',
+              description: 'Unique identifier for the admin',
+              example: 'clx1234567890',
+            },
+            email: {
+              type: 'string',
+              format: 'email',
+              description: 'Admin email address',
+              example: 'admin@example.com',
+            },
+            firstName: {
+              type: 'string',
+              description: 'Admin first name',
+              example: 'John',
+            },
+            lastName: {
+              type: 'string',
+              description: 'Admin last name',
+              example: 'Doe',
+            },
+            walletAddress: {
+              type: 'string',
+              description: 'Admin wallet address',
+              example: '3K9Z3UX2wWZ1tEGUU9aNVgXD4uTxHwAUgJfKJUiX5AsP',
+              nullable: true,
+            },
+            permissions: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE', 'CAN_MANAGE_USERS', 'CAN_MANAGE_ADMINS'],
+              },
+              description: 'Admin permissions',
+              example: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE'],
+            },
+            isActive: {
+              type: 'boolean',
+              description: 'Whether the admin is active',
+              example: true,
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Admin creation timestamp',
+              example: '2024-01-01T00:00:00.000Z',
+            },
+            updatedAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Admin last update timestamp',
+              example: '2024-01-01T00:00:00.000Z',
+            },
+          },
+        },
+        CreateAdminRequest: {
+          type: 'object',
+          required: ['email', 'firstName', 'lastName', 'permissions'],
+          properties: {
+            email: {
+              type: 'string',
+              format: 'email',
+              description: 'Admin email address',
+              example: 'admin@example.com',
+            },
+            firstName: {
+              type: 'string',
+              description: 'Admin first name',
+              example: 'John',
+              minLength: 1,
+              maxLength: 50,
+            },
+            lastName: {
+              type: 'string',
+              description: 'Admin last name',
+              example: 'Doe',
+              minLength: 1,
+              maxLength: 50,
+            },
+            permissions: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE', 'CAN_MANAGE_USERS', 'CAN_MANAGE_ADMINS'],
+              },
+              description: 'Admin permissions',
+              example: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE'],
+              minItems: 1,
+              maxItems: 4,
+            },
+          },
+        },
+        UpdateAdminRequest: {
+          type: 'object',
+          properties: {
+            email: {
+              type: 'string',
+              format: 'email',
+              description: 'Admin email address',
+              example: 'admin@example.com',
+            },
+            firstName: {
+              type: 'string',
+              description: 'Admin first name',
+              example: 'John',
+              minLength: 1,
+              maxLength: 50,
+            },
+            lastName: {
+              type: 'string',
+              description: 'Admin last name',
+              example: 'Doe',
+              minLength: 1,
+              maxLength: 50,
+            },
+            walletAddress: {
+              type: 'string',
+              description: 'Admin wallet address',
+              example: '3K9Z3UX2wWZ1tEGUU9aNVgXD4uTxHwAUgJfKJUiX5AsP',
+              maxLength: 100,
+            },
+            permissions: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE', 'CAN_MANAGE_USERS', 'CAN_MANAGE_ADMINS'],
+              },
+              description: 'Admin permissions',
+              example: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE'],
+              minItems: 1,
+              maxItems: 4,
+            },
+            isActive: {
+              type: 'boolean',
+              description: 'Whether the admin is active',
+              example: true,
+            },
+          },
+        },
+        Transaction: {
+          type: 'object',
+          required: ['id', 'userEmail', 'adminEmails', 'status', 'createdAt', 'updatedAt'],
+          properties: {
+            id: {
+              type: 'string',
+              description: 'Unique identifier for the transaction',
+              example: 'clx1234567890',
+            },
+            userEmail: {
+              type: 'string',
+              format: 'email',
+              description: 'User email address',
+              example: 'user@example.com',
+            },
+            adminEmails: {
+              type: 'array',
+              items: {
+                type: 'string',
+                format: 'email',
+              },
+              description: 'Admin email addresses who can vote/execute',
+              example: ['admin1@example.com', 'admin2@example.com'],
+            },
+            status: {
+              type: 'string',
+              enum: ['PENDING', 'APPROVED', 'EXECUTED', 'REJECTED'],
+              description: 'Transaction status',
+              example: 'PENDING',
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Transaction creation timestamp',
+              example: '2024-01-01T00:00:00.000Z',
+            },
+            updatedAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Transaction last update timestamp',
               example: '2024-01-01T00:00:00.000Z',
             },
           },
