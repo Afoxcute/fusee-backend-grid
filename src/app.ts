@@ -4,7 +4,7 @@ import swaggerUi from 'swagger-ui-express';
 import cors from 'cors';
 import Logger from './utils/logger';
 import { config } from './config/env';
-import { swaggerSpec } from './config/swagger';
+import swaggerSpec from './config/swagger';
 
 const app = express();
 
@@ -103,10 +103,8 @@ app.get('/health', (req, res) => {
 
 // API routes
 import userRoutes from './routes/user.routes';
-import adminRoutes from './routes/admin.routes';
 
 app.use('/api/users', userRoutes);
-app.use('/api/admin', adminRoutes);
 
 // 404 handler
 app.use((req, res) => {

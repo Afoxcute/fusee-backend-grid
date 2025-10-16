@@ -9,12 +9,6 @@ type PendingGridAuth = {
     middleName?: string | null;
     phoneNumber?: string | null;
   };
-  adminData?: {
-    email: string;
-    firstName: string;
-    lastName: string;
-    permissions: string[];
-  };
 };
 
 export const PENDING_TTL_MS = 1000 * 60 * 10; // 10 minutes

@@ -26,52 +26,6 @@ model User {
   @@map("users")
 }
 
-model Admin {
-  id          String   @id @default(cuid())
-  email       String   @unique
-  firstName   String
-  lastName    String
-  walletAddress String? @unique
-  publicKey   String? @unique  // Store the public key from keypair
-  secretKey   String?          // Store the secret key (encrypted in production)
-  permissions AdminPermission[]
-  isActive    Boolean  @default(true)
-  lastActivityAt DateTime @default(now())
-  lastVoteActivityAt DateTime?
-  lastExecuteActivityAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@map("admins")
-}
-
-model Transaction {
-  id          String   @id @default(cuid())
-  userEmail   String
-  adminEmails String[] // Array of admin emails who can vote/execute
-  status      TransactionStatus @default(PENDING)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@map("transactions")
-}
-
 enum UserRole {
   USER
-  ADMIN
-}
-
-enum AdminPermission {
-  CAN_INITIATE
-  CAN_VOTE
-  CAN_EXECUTE
-  CAN_MANAGE_USERS
-  CAN_MANAGE_ADMINS
-}
-
-enum TransactionStatus {
-  PENDING
-  APPROVED
-  EXECUTED
-  REJECTED
 }

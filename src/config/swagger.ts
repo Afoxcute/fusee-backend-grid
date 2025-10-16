@@ -55,26 +55,39 @@ const options: swaggerJsdoc.Options = {
               type: 'string',
               description: 'User middle name',
               example: 'Michael',
-              nullable: true,
             },
             phoneNumber: {
               type: 'string',
-              description: 'User phone number (supports international formats)',
-              example: '+2348101872122',
-              pattern: '^(\\+?[1-9]\\d{1,14})|(\\(?[0-9]{3}\\)?[-.\\s]?[0-9]{3}[-.\\s]?[0-9]{4})$',
-              nullable: true,
+              description: 'User phone number',
+              example: '+1234567890',
+            },
+            walletAddress: {
+              type: 'string',
+              description: 'User wallet address',
+              example: 'GC52tLZUiuz8UDSi7BUWn62473Cje3sGKTjxjRZ7oeEz',
+            },
+            role: {
+              type: 'string',
+              enum: ['USER'],
+              description: 'User role',
+              example: 'USER',
+            },
+            isActive: {
+              type: 'boolean',
+              description: 'Whether the user is active',
+              example: true,
             },
             createdAt: {
               type: 'string',
               format: 'date-time',
               description: 'User creation timestamp',
-              example: '2024-01-01T00:00:00.000Z',
+              example: '2023-01-01T00:00:00.000Z',
             },
             updatedAt: {
               type: 'string',
               format: 'date-time',
               description: 'User last update timestamp',
-              example: '2024-01-01T00:00:00.000Z',
+              example: '2023-01-01T00:00:00.000Z',
             },
           },
         },
@@ -92,46 +105,304 @@ const options: swaggerJsdoc.Options = {
               type: 'string',
               description: 'User first name',
               example: 'John',
-              minLength: 1,
-              maxLength: 50,
             },
             lastName: {
               type: 'string',
               description: 'User last name',
               example: 'Doe',
-              minLength: 1,
-              maxLength: 50,
             },
             middleName: {
               type: 'string',
-              description: 'User middle name (optional)',
+              description: 'User middle name',
               example: 'Michael',
-              maxLength: 50,
             },
             phoneNumber: {
               type: 'string',
-              description: 'User phone number (optional)',
+              description: 'User phone number',
               example: '+1234567890',
-              pattern: '^(\\+?1[-.\\s]?)?\\(?([0-9]{3})\\)?[-.\\s]?([0-9]{3})[-.\\s]?([0-9]{4})$',
+            },
+          },
+        },
+        UpdateUserRequest: {
+          type: 'object',
+          properties: {
+            email: {
+              type: 'string',
+              format: 'email',
+              description: 'User email address',
+              example: 'john.doe@example.com',
+            },
+            firstName: {
+              type: 'string',
+              description: 'User first name',
+              example: 'John',
+            },
+            lastName: {
+              type: 'string',
+              description: 'User last name',
+              example: 'Doe',
+            },
+            middleName: {
+              type: 'string',
+              description: 'User middle name',
+              example: 'Michael',
+            },
+            phoneNumber: {
+              type: 'string',
+              description: 'User phone number',
+              example: '+1234567890',
+            },
+            walletAddress: {
+              type: 'string',
+              description: 'User wallet address',
+              example: 'GC52tLZUiuz8UDSi7BUWn62473Cje3sGKTjxjRZ7oeEz',
+            },
+            isActive: {
+              type: 'boolean',
+              description: 'Whether the user is active',
+              example: true,
+            },
+          },
+        },
+        InitiateGridAccountRequest: {
+          type: 'object',
+          required: ['email', 'firstName', 'lastName'],
+          properties: {
+            email: {
+              type: 'string',
+              format: 'email',
+              description: 'User email address',
+              example: 'john.doe@example.com',
+            },
+            firstName: {
+              type: 'string',
+              description: 'User first name',
+              example: 'John',
+            },
+            lastName: {
+              type: 'string',
+              description: 'User last name',
+              example: 'Doe',
+            },
+            middleName: {
+              type: 'string',
+              description: 'User middle name',
+              example: 'Michael',
+            },
+            phoneNumber: {
+              type: 'string',
+              description: 'User phone number',
+              example: '+1234567890',
+            },
+          },
+        },
+        CompleteGridAccountRequest: {
+          type: 'object',
+          required: ['pendingKey', 'otpCode'],
+          properties: {
+            pendingKey: {
+              type: 'string',
+              description: 'Pending session key from initiate response',
+              example: 'abc123...xyz789',
+            },
+            otpCode: {
+              type: 'string',
+              description: 'OTP code received via email',
+              example: '123456',
+            },
+          },
+        },
+        GridAccountInitiateResponse: {
+          type: 'object',
+          required: ['pendingKey', 'maskedKey', 'expiresAt'],
+          properties: {
+            pendingKey: {
+              type: 'string',
+              description: 'Pending session key for completing account creation',
+              example: 'abc123...xyz789',
+            },
+            maskedKey: {
+              type: 'string',
+              description: 'Masked version of the pending key for display',
+              example: 'abc123...z789',
+            },
+            expiresAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Expiration time for the pending session',
+              example: '2023-01-01T01:00:00.000Z',
+            },
+          },
+        },
+        GridAccountCompleteResponse: {
+          type: 'object',
+          required: ['user', 'gridAccount'],
+          properties: {
+            user: {
+              $ref: '#/components/schemas/User',
+            },
+            gridAccount: {
+              type: 'object',
+              required: ['address', 'status', 'policies'],
+              properties: {
+                address: {
+                  type: 'string',
+                  description: 'Grid account address',
+                  example: '33atfECaKPr97XLin7WbvCjLKgetZXPpfGJprgWAYE7j',
+                },
+                status: {
+                  type: 'string',
+                  description: 'Grid account status',
+                  example: 'success',
+                },
+                policies: {
+                  type: 'object',
+                  description: 'Grid account policies',
+                  properties: {
+                    signers: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          address: {
+                            type: 'string',
+                            description: 'Signer address',
+                          },
+                          role: {
+                            type: 'string',
+                            description: 'Signer role',
+                          },
+                          permissions: {
+                            type: 'array',
+                            items: {
+                              type: 'string',
+                            },
+                            description: 'Signer permissions',
+                          },
+                        },
+                      },
+                    },
+                    threshold: {
+                      type: 'integer',
+                      description: 'Signature threshold',
+                    },
+                    time_lock: {
+                      type: 'integer',
+                      description: 'Time lock in seconds',
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        ErrorResponse: {
+          type: 'object',
+          required: ['error'],
+          properties: {
+            error: {
+              type: 'string',
+              description: 'Error message',
+              example: 'User not found',
+            },
+            conflicts: {
+              type: 'array',
+              items: {
+                type: 'string',
+              },
+              description: 'List of conflict messages',
+            },
+            fields: {
+              type: 'array',
+              items: {
+                type: 'string',
+              },
+              description: 'List of conflicting fields',
             },
           },
         },
         Error: {
           type: 'object',
+          required: ['error'],
           properties: {
             error: {
               type: 'string',
               description: 'Error message',
               example: 'Something went wrong!',
             },
+            stack: {
+              type: 'string',
+              description: 'Error stack trace (only in development)',
+              example: 'Error: Something went wrong!\n    at ...',
+            },
+          },
+        },
+        ValidationError: {
+          type: 'object',
+          required: ['error'],
+          properties: {
+            error: {
+              type: 'string',
+              description: 'Validation error message',
+              example: 'Validation failed',
+            },
+            details: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  field: {
+                    type: 'string',
+                    description: 'Field name that failed validation',
+                  },
+                  message: {
+                    type: 'string',
+                    description: 'Validation error message for this field',
+                  },
+                },
+              },
+              description: 'Detailed validation errors',
+            },
+          },
+        },
+        RateLimitError: {
+          type: 'object',
+          required: ['error'],
+          properties: {
+            error: {
+              type: 'string',
+              description: 'Rate limit error message',
+              example: 'Too many requests',
+            },
+            retryAfter: {
+              type: 'integer',
+              description: 'Seconds to wait before retrying',
+              example: 60,
+            },
+          },
+        },
+        SuccessResponse: {
+          type: 'object',
+          required: ['message'],
+          properties: {
+            message: {
+              type: 'string',
+              description: 'Success message',
+              example: 'Operation completed successfully',
+            },
+            data: {
+              type: 'object',
+              description: 'Response data',
+            },
           },
         },
         HealthResponse: {
           type: 'object',
+          required: ['status', 'timestamp', 'uptime', 'environment', 'version'],
           properties: {
             status: {
               type: 'string',
-              description: 'Service status',
+              description: 'Server health status',
               example: 'OK',
             },
             timestamp: {
@@ -152,239 +423,28 @@ const options: swaggerJsdoc.Options = {
             },
             version: {
               type: 'string',
-              description: 'API version',
+              description: 'Application version',
               example: '1.0.0',
             },
           },
         },
-        UpdateUserRequest: {
-          type: 'object',
-          properties: {
-            email: {
-              type: 'string',
-              format: 'email',
-              description: 'User email address',
-              example: 'john.doe@example.com',
-            },
-            firstName: {
-              type: 'string',
-              description: 'User first name',
-              example: 'John',
-              minLength: 1,
-              maxLength: 50,
-            },
-            lastName: {
-              type: 'string',
-              description: 'User last name',
-              example: 'Doe',
-              minLength: 1,
-              maxLength: 50,
-            },
-            middleName: {
-              type: 'string',
-              description: 'User middle name (optional)',
-              example: 'Michael',
-              maxLength: 50,
-            },
-            phoneNumber: {
-              type: 'string',
-              description: 'User phone number (optional)',
-              example: '+1234567890',
-              pattern: '^(\\+?1[-.\\s]?)?\\(?([0-9]{3})\\)?[-.\\s]?([0-9]{3})[-.\\s]?([0-9]{4})$',
-            },
-          },
-        },
-        Admin: {
-          type: 'object',
-          required: ['id', 'email', 'firstName', 'lastName', 'permissions', 'isActive', 'createdAt', 'updatedAt'],
-          properties: {
-            id: {
-              type: 'string',
-              description: 'Unique identifier for the admin',
-              example: 'clx1234567890',
-            },
-            email: {
-              type: 'string',
-              format: 'email',
-              description: 'Admin email address',
-              example: 'admin@example.com',
-            },
-            firstName: {
-              type: 'string',
-              description: 'Admin first name',
-              example: 'John',
-            },
-            lastName: {
-              type: 'string',
-              description: 'Admin last name',
-              example: 'Doe',
-            },
-            walletAddress: {
-              type: 'string',
-              description: 'Admin wallet address',
-              example: '3K9Z3UX2wWZ1tEGUU9aNVgXD4uTxHwAUgJfKJUiX5AsP',
-              nullable: true,
-            },
-            permissions: {
-              type: 'array',
-              items: {
-                type: 'string',
-                enum: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE', 'CAN_MANAGE_USERS', 'CAN_MANAGE_ADMINS'],
-              },
-              description: 'Admin permissions',
-              example: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE'],
-            },
-            isActive: {
-              type: 'boolean',
-              description: 'Whether the admin is active',
-              example: true,
-            },
-            createdAt: {
-              type: 'string',
-              format: 'date-time',
-              description: 'Admin creation timestamp',
-              example: '2024-01-01T00:00:00.000Z',
-            },
-            updatedAt: {
-              type: 'string',
-              format: 'date-time',
-              description: 'Admin last update timestamp',
-              example: '2024-01-01T00:00:00.000Z',
-            },
-          },
-        },
-        CreateAdminRequest: {
-          type: 'object',
-          required: ['email', 'firstName', 'lastName', 'permissions'],
-          properties: {
-            email: {
-              type: 'string',
-              format: 'email',
-              description: 'Admin email address',
-              example: 'admin@example.com',
-            },
-            firstName: {
-              type: 'string',
-              description: 'Admin first name',
-              example: 'John',
-              minLength: 1,
-              maxLength: 50,
-            },
-            lastName: {
-              type: 'string',
-              description: 'Admin last name',
-              example: 'Doe',
-              minLength: 1,
-              maxLength: 50,
-            },
-            permissions: {
-              type: 'array',
-              items: {
-                type: 'string',
-                enum: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE', 'CAN_MANAGE_USERS', 'CAN_MANAGE_ADMINS'],
-              },
-              description: 'Admin permissions',
-              example: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE'],
-              minItems: 1,
-              maxItems: 4,
-            },
-          },
-        },
-        UpdateAdminRequest: {
-          type: 'object',
-          properties: {
-            email: {
-              type: 'string',
-              format: 'email',
-              description: 'Admin email address',
-              example: 'admin@example.com',
-            },
-            firstName: {
-              type: 'string',
-              description: 'Admin first name',
-              example: 'John',
-              minLength: 1,
-              maxLength: 50,
-            },
-            lastName: {
-              type: 'string',
-              description: 'Admin last name',
-              example: 'Doe',
-              minLength: 1,
-              maxLength: 50,
-            },
-            walletAddress: {
-              type: 'string',
-              description: 'Admin wallet address',
-              example: '3K9Z3UX2wWZ1tEGUU9aNVgXD4uTxHwAUgJfKJUiX5AsP',
-              maxLength: 100,
-            },
-            permissions: {
-              type: 'array',
-              items: {
-                type: 'string',
-                enum: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE', 'CAN_MANAGE_USERS', 'CAN_MANAGE_ADMINS'],
-              },
-              description: 'Admin permissions',
-              example: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE'],
-              minItems: 1,
-              maxItems: 4,
-            },
-            isActive: {
-              type: 'boolean',
-              description: 'Whether the admin is active',
-              example: true,
-            },
-          },
-        },
-        Transaction: {
-          type: 'object',
-          required: ['id', 'userEmail', 'adminEmails', 'status', 'createdAt', 'updatedAt'],
-          properties: {
-            id: {
-              type: 'string',
-              description: 'Unique identifier for the transaction',
-              example: 'clx1234567890',
-            },
-            userEmail: {
-              type: 'string',
-              format: 'email',
-              description: 'User email address',
-              example: 'user@example.com',
-            },
-            adminEmails: {
-              type: 'array',
-              items: {
-                type: 'string',
-                format: 'email',
-              },
-              description: 'Admin email addresses who can vote/execute',
-              example: ['admin1@example.com', 'admin2@example.com'],
-            },
-            status: {
-              type: 'string',
-              enum: ['PENDING', 'APPROVED', 'EXECUTED', 'REJECTED'],
-              description: 'Transaction status',
-              example: 'PENDING',
-            },
-            createdAt: {
-              type: 'string',
-              format: 'date-time',
-              description: 'Transaction creation timestamp',
-              example: '2024-01-01T00:00:00.000Z',
-            },
-            updatedAt: {
-              type: 'string',
-              format: 'date-time',
-              description: 'Transaction last update timestamp',
-              example: '2024-01-01T00:00:00.000Z',
-            },
-          },
+      },
+      securitySchemes: {
+        ApiKeyAuth: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'Authorization',
+          description: 'API key authentication',
         },
       },
     },
+    security: [
+      {
+        ApiKeyAuth: [],
+      },
+    ],
   },
-  apis: ['./src/routes/*.ts', './src/controllers/*.ts'], // Paths to files containing OpenAPI definitions
+  apis: ['./src/routes/*.ts', './src/controllers/*.ts'],
 };
 
-export const swaggerSpec = swaggerJsdoc(options);
+export default swaggerJsdoc(options);

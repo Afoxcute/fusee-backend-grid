@@ -21,6 +21,8 @@ interface RetryItem {
     middleName?: string | null;
     phoneNumber?: string | null;
     walletAddress: string;
+    role?: string;
+    isActive?: boolean;
   };
   attempts: number;
   lastAttempt: Date;
@@ -97,6 +99,8 @@ const processRetryItem = async (item: RetryItem): Promise<boolean> => {
         middleName: item.userData.middleName,
         phoneNumber: item.userData.phoneNumber,
         walletAddress: item.userData.walletAddress,
+        role: (item.userData.role as any) || 'USER',
+        isActive: item.userData.isActive ?? true,
       },
     });
 
