@@ -184,6 +184,47 @@ router.get('/:id', userController.getUserById);
 
 /**
  * @swagger
+ * /api/users/email/{email}:
+ *   get:
+ *     summary: Get user by email
+ *     description: Retrieve a specific user by their email address
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: email
+ *         description: User email address
+ *         example: "john.doe@example.com"
+ *     responses:
+ *       200:
+ *         description: User retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/email/:email', userController.getUserByEmail);
+
+/**
+ * @swagger
  * /api/users/{id}:
  *   put:
  *     summary: Update user
@@ -485,5 +526,178 @@ router.post('/grid/initiate', validateRequest(initiateGridAccountSchema), userCo
  *               $ref: '#/components/schemas/Error'
  */
 router.post('/grid/complete', validateRequest(completeGridAccountSchema), userController.completeGridAccount);
+
+// Balance routes
+/**
+ * @swagger
+ * /api/users/email/{email}/balances:
+ *   get:
+ *     summary: Get user balances by email
+ *     description: Retrieve SOL and USDC balances for a user identified by their email address (USDC on devnet). Supports filtering and pagination.
+ *     tags: [Users, Balances]
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: email
+ *         description: User email address
+ *         example: "john.doe@example.com"
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *         description: Maximum number of tokens to return
+ *         example: 10
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *         description: Number of tokens to skip
+ *         example: 0
+ *       - in: query
+ *         name: mint
+ *         schema:
+ *           type: string
+ *         description: Filter by specific token mint address
+ *         example: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+ *     responses:
+ *       200:
+ *         description: User balances retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserBalancesResponse'
+ *       400:
+ *         description: Bad request - User does not have a wallet address
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/email/:email/balances', userController.getUserBalances);
+
+/**
+ * @swagger
+ * /api/users/wallet/{walletAddress}/balances:
+ *   get:
+ *     summary: Get user balances by wallet address
+ *     description: Retrieve SOL and USDC balances for a user identified by their wallet address (USDC on devnet). Supports filtering and pagination.
+ *     tags: [Users, Balances]
+ *     parameters:
+ *       - in: path
+ *         name: walletAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User wallet address (Solana public key)
+ *         example: "GC52tLZUiuz8UDSi7BUWn62473Cje3sGKTjxjRZ7oeEz"
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *         description: Maximum number of tokens to return
+ *         example: 10
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *         description: Number of tokens to skip
+ *         example: 0
+ *       - in: query
+ *         name: mint
+ *         schema:
+ *           type: string
+ *         description: Filter by specific token mint address
+ *         example: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+ *     responses:
+ *       200:
+ *         description: User balances retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserBalancesResponse'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/wallet/:walletAddress/balances', userController.getUserBalancesByWallet);
+
+// Test endpoint for debugging Grid configuration
+/**
+ * @swagger
+ * /api/users/test-grid-config:
+ *   get:
+ *     summary: Test Grid configuration
+ *     description: Test endpoint to debug Grid API configuration and connectivity
+ *     tags: [Users, Debug]
+ *     responses:
+ *       200:
+ *         description: Grid configuration test results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "success"
+ *                 message:
+ *                   type: string
+ *                   example: "Grid configuration is valid"
+ *                 environment:
+ *                   type: string
+ *                   example: "sandbox"
+ *                 hasApiKey:
+ *                   type: boolean
+ *                   example: true
+ *                 apiKeyLength:
+ *                   type: integer
+ *                   example: 32
+ *                 testResult:
+ *                   type: object
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                     error:
+ *                       type: string
+ *                     hasData:
+ *                       type: boolean
+ *       500:
+ *         description: Grid configuration error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/test-grid-config', userController.testGridConfig);
 
 export default router;

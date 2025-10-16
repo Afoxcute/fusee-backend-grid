@@ -22,6 +22,32 @@ import {
   CompleteGridAccountInput,
 } from '../schemas/user.schemas';
 
+// Token mint addresses
+const TOKEN_MINTS = {
+  SOL: 'So11111111111111111111111111111111111111112',
+  USDC_DEVNET: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', // Devnet USDC
+  USDC_MAINNET: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // Mainnet USDC
+} as const;
+
+// Helper function to validate Grid client configuration
+const validateGridConfig = () => {
+  const apiKey = process.env.GRID_API_KEY;
+  const environment = process.env.GRID_ENVIRONMENT;
+  
+  if (!apiKey) {
+    Logger.error('GRID_API_KEY environment variable is not set');
+    return { valid: false, error: 'Grid API key not configured' };
+  }
+  
+  if (!environment || !['sandbox', 'production'].includes(environment)) {
+    Logger.error('GRID_ENVIRONMENT must be either "sandbox" or "production"');
+    return { valid: false, error: 'Invalid Grid environment configuration' };
+  }
+  
+  Logger.info(`Grid client configured: environment=${environment}, apiKey=${apiKey.substring(0, 8)}...`);
+  return { valid: true };
+};
+
 // Helper function to extract wallet address from Grid response
 const extractWalletAddress = (authResult: any): string => {
   try {
@@ -101,6 +127,8 @@ export const getUserById = async (req: Request, res: Response) => {
         isActive: true,
         createdAt: true,
         updatedAt: true,
+        // Grid account fields (will be available after migration)
+        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
       },
     });
 
@@ -119,9 +147,12 @@ export const getUserById = async (req: Request, res: Response) => {
 export const getUserByEmail = async (req: Request, res: Response) => {
   try {
     const { email } = req.params;
+    
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
 
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { email: decodedEmail },
       select: {
         id: true,
         email: true,
@@ -134,6 +165,8 @@ export const getUserByEmail = async (req: Request, res: Response) => {
         isActive: true,
         createdAt: true,
         updatedAt: true,
+        // Grid account fields (will be available after migration)
+        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
       },
     });
 
@@ -143,7 +176,7 @@ export const getUserByEmail = async (req: Request, res: Response) => {
 
     res.json({ user });
   } catch (error) {
-    Logger.error('Error fetching user:', error);
+    Logger.error('Error fetching user by email:', error);
     res.status(500).json({ error: 'Failed to fetch user' });
   }
 };
@@ -164,6 +197,8 @@ export const getUsers = async (req: Request, res: Response) => {
         isActive: true,
         createdAt: true,
         updatedAt: true,
+        // Grid account fields (will be available after migration)
+        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -291,6 +326,8 @@ export const updateUser = async (req: Request, res: Response) => {
         isActive: true,
         createdAt: true,
         updatedAt: true,
+        // Grid account fields (will be available after migration)
+        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
       },
     });
 
@@ -314,11 +351,27 @@ export const deleteUser = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    await prisma.user.delete({
+    const user = await prisma.user.delete({
       where: { id },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        phoneNumber: true,
+        walletAddress: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        // Grid account fields (will be available after migration)
+        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+      },
     });
 
-    res.status(204).send();
+    Logger.info(`Deleted user from database: ${user.email}`);
+    res.status(200).json({ message: 'User deleted successfully', user });
   } catch (error) {
     Logger.error('Error deleting user:', error);
     res.status(500).json({ error: 'Failed to delete user' });
@@ -457,61 +510,67 @@ export const completeGridAccount = async (req: Request, res: Response) => {
           }
         }
         
-        try {
-          const user = await prisma.user.create({
-            data: {
-              email,
-              firstName,
-              lastName,
-              middleName,
-              phoneNumber,
-              walletAddress, // Use extracted wallet address
-              role: 'USER',
-              isActive: true,
-            },
-            select: {
-              id: true,
-              email: true,
-              firstName: true,
-              lastName: true,
-              middleName: true,
-              phoneNumber: true,
-              walletAddress: true,
-              role: true,
-              isActive: true,
-              createdAt: true,
-              updatedAt: true,
-            },
-          });
+               try {
+                 const user = await prisma.user.create({
+                   data: {
+                     email,
+                     firstName,
+                     lastName,
+                     middleName,
+                     phoneNumber,
+                     walletAddress, // Use extracted wallet address
+                     role: 'USER',
+                     isActive: true,
+                     // Store Grid account data (will be available after migration)
+                     ...({
+                       gridAddress: authResult.data?.address || null,
+                       gridStatus: authResult.data?.status || null,
+                       gridPolicies: authResult.data?.policies || null,
+                     } as any),
+                   },
+                   select: {
+                     id: true,
+                     email: true,
+                     firstName: true,
+                     lastName: true,
+                     middleName: true,
+                     phoneNumber: true,
+                     walletAddress: true,
+                     role: true,
+                     isActive: true,
+                     createdAt: true,
+                     updatedAt: true,
+                     // Grid account fields (will be available after migration)
+                     ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+                   },
+                 });
 
-          Logger.info(`Created user in database: ${email} with wallet: ${walletAddress}`);
+                 Logger.info(`Created user in database: ${email} with wallet: ${walletAddress} and Grid address: ${user.gridAddress}`);
 
-          // Clean up pending session
-          await removePending(pendingKey);
+                 // Clean up pending session
+                 await removePending(pendingKey);
 
-          // Add to retry queue if there was a database error but Grid account was created
-          if (walletAddress) {
-            Logger.info(`Adding ${walletAddress} to retry queue due to database error`);
-            addToRetryQueue(walletAddress, {
-              email,
-              firstName,
-              lastName,
-              middleName,
-              phoneNumber,
-              walletAddress: walletAddress,
-              role: 'USER',
-              isActive: true,
-            });
-          }
-
-          res.status(201).json({
-            user,
-            gridAccount: {
-              address: authResult.data?.address || '',
-              status: authResult.data?.status || 'unknown',
-              policies: authResult.data?.policies || {},
-            },
-          });
+                 // Return user and Grid account details in the requested format
+                 return res.status(201).json({ 
+                   user: {
+                     id: user.id,
+                     email: user.email,
+                     firstName: user.firstName,
+                     lastName: user.lastName,
+                     middleName: user.middleName,
+                     phoneNumber: user.phoneNumber,
+                     walletAddress: user.walletAddress,
+                     role: user.role,
+                     isActive: user.isActive,
+                     createdAt: user.createdAt,
+                     updatedAt: user.updatedAt,
+                   },
+                   gridAccount: {
+                     address: user.gridAddress,
+                     status: user.gridStatus,
+                     policies: user.gridPolicies,
+                   }
+                 });
         } catch (dbError) {
           Logger.error('Database error during user creation:', dbError);
           
@@ -538,5 +597,371 @@ export const completeGridAccount = async (req: Request, res: Response) => {
   } catch (error) {
     Logger.error('Error completing Grid account:', error);
     res.status(500).json({ error: 'Failed to complete Grid account creation' });
+  }
+};
+
+// Get user account balances (SOL and SPL tokens including USDC on devnet)
+export const getUserBalances = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+    const { limit, offset, mint } = req.query; // Support query parameters
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        // Grid account fields (will be available after migration)
+        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.gridAddress) {
+      return res.status(400).json({ error: 'User does not have a Grid account address' });
+    }
+
+    // Validate Grid configuration
+    const gridConfig = validateGridConfig();
+    if (!gridConfig.valid) {
+      Logger.error('Grid configuration validation failed:', gridConfig.error);
+      return res.status(500).json({ 
+        error: 'Grid service configuration error',
+        details: gridConfig.error
+      });
+    }
+
+    // Prepare query parameters for Grid API
+    const queryParams: any = {};
+    if (limit) queryParams.limit = parseInt(limit as string, 10);
+    if (offset) queryParams.offset = parseInt(offset as string, 10);
+    if (mint) queryParams.mint = mint as string;
+
+    // Get account balances from Grid using the Grid account address
+    Logger.info(`Fetching balances for Grid account: ${user.gridAddress}`, { queryParams });
+    
+    let balances;
+    try {
+      // Call Grid API with optional query parameters using Grid account address
+      balances = await gridClient.getAccountBalances(user.gridAddress, queryParams);
+      
+      if (!balances?.success) {
+        Logger.error('Failed to fetch account balances:', {
+          success: balances?.success,
+          error: balances?.error,
+          data: balances?.data,
+          gridAddress: user.gridAddress,
+          queryParams
+        });
+        return res.status(500).json({ 
+          error: 'Failed to fetch account balances',
+          details: balances?.error || 'Unknown error'
+        });
+      }
+      
+      Logger.info('Successfully fetched balances from Grid API', {
+        gridAddress: user.gridAddress,
+        tokenCount: balances.data?.tokens?.length || 0,
+        hasNative: !!(balances.data as any)?.native
+      });
+    } catch (gridError) {
+      Logger.error('Grid API error:', {
+        error: gridError,
+        gridAddress: user.gridAddress,
+        queryParams,
+        message: gridError instanceof Error ? gridError.message : 'Unknown error'
+      });
+      return res.status(500).json({ 
+        error: 'Failed to fetch account balances',
+        details: gridError instanceof Error ? gridError.message : 'Grid API error'
+      });
+    }
+
+    // Process the Grid response data
+    const accountData = balances.data as any;
+    if (!accountData) {
+      Logger.warn('No account data received from Grid API');
+      return res.status(500).json({ 
+        error: 'No account data received',
+        details: 'Grid API returned empty data'
+      });
+    }
+
+    // Extract USDC balance specifically (devnet USDC)
+    const usdcBalance = accountData.tokens?.find((token: any) => 
+      token.mint === TOKEN_MINTS.USDC_DEVNET
+    );
+
+    // Extract SOL balance from native field
+    const solBalance = accountData.native;
+
+    // Calculate formatted balances
+    const formatBalance = (balance: string | undefined, decimals: number) => {
+      if (!balance) return '0';
+      const numBalance = parseFloat(balance);
+      return (numBalance / Math.pow(10, decimals)).toFixed(decimals);
+    };
+
+    const solFormatted = formatBalance(solBalance?.balance, solBalance?.decimals || 9);
+    const usdcFormatted = formatBalance(usdcBalance?.balance, usdcBalance?.decimals || 6);
+
+    Logger.info(`Fetched balances for user ${email}: SOL=${solFormatted}, USDC=${usdcFormatted} (Grid: ${user.gridAddress})`);
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        walletAddress: user.walletAddress,
+        gridAddress: user.gridAddress,
+      },
+      balances: {
+        sol: {
+          balance: solBalance?.balance || '0',
+          formattedBalance: solFormatted,
+          decimals: solBalance?.decimals || 9,
+          mint: TOKEN_MINTS.SOL,
+          symbol: 'SOL',
+          uiAmount: parseFloat(solFormatted),
+        },
+        usdc: {
+          balance: usdcBalance?.balance || '0',
+          formattedBalance: usdcFormatted,
+          decimals: usdcBalance?.decimals || 6,
+          mint: TOKEN_MINTS.USDC_DEVNET,
+          symbol: 'USDC',
+          uiAmount: parseFloat(usdcFormatted),
+        },
+        summary: {
+          totalTokens: accountData.tokens?.length || 0,
+          hasNative: !!accountData.native,
+          hasUsdc: !!usdcBalance,
+          queryParams: Object.keys(queryParams).length > 0 ? queryParams : undefined,
+        },
+        allTokens: accountData.tokens || [],
+        native: accountData.native || null,
+      },
+    });
+  } catch (error) {
+    Logger.error('Error fetching user balances:', error);
+    res.status(500).json({ error: 'Failed to fetch user balances' });
+  }
+};
+
+// Get user account balances by wallet address (SOL and SPL tokens including USDC on devnet)
+export const getUserBalancesByWallet = async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+    const { limit, offset, mint } = req.query; // Support query parameters
+
+    // Find user by wallet address
+    const user = await prisma.user.findFirst({
+      where: { walletAddress },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        // Grid account fields (will be available after migration)
+        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.gridAddress) {
+      return res.status(400).json({ error: 'User does not have a Grid account address' });
+    }
+
+    // Validate Grid configuration
+    const gridConfig = validateGridConfig();
+    if (!gridConfig.valid) {
+      Logger.error('Grid configuration validation failed:', gridConfig.error);
+      return res.status(500).json({ 
+        error: 'Grid service configuration error',
+        details: gridConfig.error
+      });
+    }
+
+    // Prepare query parameters for Grid API
+    const queryParams: any = {};
+    if (limit) queryParams.limit = parseInt(limit as string, 10);
+    if (offset) queryParams.offset = parseInt(offset as string, 10);
+    if (mint) queryParams.mint = mint as string;
+
+    // Get account balances from Grid using the Grid account address
+    Logger.info(`Fetching balances for Grid account: ${user.gridAddress}`, { queryParams });
+    
+    let balances;
+    try {
+      // Call Grid API with optional query parameters using Grid account address
+      balances = await gridClient.getAccountBalances(user.gridAddress, queryParams);
+      
+      if (!balances?.success) {
+        Logger.error('Failed to fetch account balances:', {
+          success: balances?.success,
+          error: balances?.error,
+          data: balances?.data,
+          gridAddress: user.gridAddress,
+          queryParams
+        });
+        return res.status(500).json({ 
+          error: 'Failed to fetch account balances',
+          details: balances?.error || 'Unknown error'
+        });
+      }
+      
+      Logger.info('Successfully fetched balances from Grid API', {
+        gridAddress: user.gridAddress,
+        tokenCount: balances.data?.tokens?.length || 0,
+        hasNative: !!(balances.data as any)?.native
+      });
+    } catch (gridError) {
+      Logger.error('Grid API error:', {
+        error: gridError,
+        gridAddress: user.gridAddress,
+        queryParams,
+        message: gridError instanceof Error ? gridError.message : 'Unknown error'
+      });
+      return res.status(500).json({ 
+        error: 'Failed to fetch account balances',
+        details: gridError instanceof Error ? gridError.message : 'Grid API error'
+      });
+    }
+
+    // Process the Grid response data
+    const accountData = balances.data as any;
+    if (!accountData) {
+      Logger.warn('No account data received from Grid API');
+      return res.status(500).json({ 
+        error: 'No account data received',
+        details: 'Grid API returned empty data'
+      });
+    }
+
+    // Extract USDC balance specifically (devnet USDC)
+    const usdcBalance = accountData.tokens?.find((token: any) => 
+      token.mint === TOKEN_MINTS.USDC_DEVNET
+    );
+
+    // Extract SOL balance from native field
+    const solBalance = accountData.native;
+
+    // Calculate formatted balances
+    const formatBalance = (balance: string | undefined, decimals: number) => {
+      if (!balance) return '0';
+      const numBalance = parseFloat(balance);
+      return (numBalance / Math.pow(10, decimals)).toFixed(decimals);
+    };
+
+    const solFormatted = formatBalance(solBalance?.balance, solBalance?.decimals || 9);
+    const usdcFormatted = formatBalance(usdcBalance?.balance, usdcBalance?.decimals || 6);
+
+    Logger.info(`Fetched balances for wallet ${walletAddress}: SOL=${solFormatted}, USDC=${usdcFormatted} (Grid: ${user.gridAddress})`);
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        walletAddress: user.walletAddress,
+        gridAddress: user.gridAddress,
+      },
+      balances: {
+        sol: {
+          balance: solBalance?.balance || '0',
+          formattedBalance: solFormatted,
+          decimals: solBalance?.decimals || 9,
+          mint: TOKEN_MINTS.SOL,
+          symbol: 'SOL',
+          uiAmount: parseFloat(solFormatted),
+        },
+        usdc: {
+          balance: usdcBalance?.balance || '0',
+          formattedBalance: usdcFormatted,
+          decimals: usdcBalance?.decimals || 6,
+          mint: TOKEN_MINTS.USDC_DEVNET,
+          symbol: 'USDC',
+          uiAmount: parseFloat(usdcFormatted),
+        },
+        summary: {
+          totalTokens: accountData.tokens?.length || 0,
+          hasNative: !!accountData.native,
+          hasUsdc: !!usdcBalance,
+          queryParams: Object.keys(queryParams).length > 0 ? queryParams : undefined,
+        },
+        allTokens: accountData.tokens || [],
+        native: accountData.native || null,
+      },
+    });
+  } catch (error) {
+    Logger.error('Error fetching balances by wallet address:', error);
+    res.status(500).json({ error: 'Failed to fetch balances by wallet address' });
+  }
+};
+
+// Test Grid configuration endpoint (for debugging)
+export const testGridConfig = async (req: Request, res: Response) => {
+  try {
+    const gridConfig = validateGridConfig();
+    
+    if (!gridConfig.valid) {
+      return res.status(500).json({
+        error: 'Grid configuration invalid',
+        details: gridConfig.error,
+        environment: process.env.GRID_ENVIRONMENT,
+        hasApiKey: !!process.env.GRID_API_KEY,
+        apiKeyLength: process.env.GRID_API_KEY?.length || 0
+      });
+    }
+
+    // Try a simple Grid API call to test connectivity
+    try {
+      // Test with a known Solana address (this might fail but will show us the error)
+      const testAddress = '11111111111111111111111111111112'; // System program address
+      Logger.info(`Testing Grid API with address: ${testAddress}`);
+      
+      const testBalances = await gridClient.getAccountBalances(testAddress);
+      
+      res.json({
+        status: 'success',
+        message: 'Grid configuration is valid',
+        environment: process.env.GRID_ENVIRONMENT,
+        hasApiKey: !!process.env.GRID_API_KEY,
+        apiKeyLength: process.env.GRID_API_KEY?.length || 0,
+        testResult: {
+          success: testBalances?.success,
+          error: testBalances?.error,
+          hasData: !!testBalances?.data
+        }
+      });
+    } catch (testError) {
+      res.json({
+        status: 'partial',
+        message: 'Grid configuration is valid but API call failed',
+        environment: process.env.GRID_ENVIRONMENT,
+        hasApiKey: !!process.env.GRID_API_KEY,
+        apiKeyLength: process.env.GRID_API_KEY?.length || 0,
+        testError: testError instanceof Error ? testError.message : 'Unknown error'
+      });
+    }
+  } catch (error) {
+    Logger.error('Error testing Grid configuration:', error);
+    res.status(500).json({
+      error: 'Failed to test Grid configuration',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 };

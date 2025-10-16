@@ -20,6 +20,12 @@ model User {
   walletAddress String? @unique
   role        UserRole @default(USER)
   isActive    Boolean  @default(true)
+  
+  // Grid Account Data
+  gridAddress String?  // The Grid account address
+  gridStatus  String?  // Grid account status (e.g., "success")
+  gridPolicies Json?   // Grid account policies as JSON
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

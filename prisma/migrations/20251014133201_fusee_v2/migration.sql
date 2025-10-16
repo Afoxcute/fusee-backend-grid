@@ -1,5 +1,0 @@
--- AlterEnum
-ALTER TYPE "AdminPermission" ADD VALUE 'CAN_INITIATE';
-
--- AlterTable
-ALTER TABLE "admins" ADD COLUMN     "lastActivityAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

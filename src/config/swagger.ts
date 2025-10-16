@@ -77,6 +77,36 @@ const options: swaggerJsdoc.Options = {
               description: 'Whether the user is active',
               example: true,
             },
+            gridAddress: {
+              type: 'string',
+              description: 'Grid account address',
+              nullable: true,
+              example: 'AiHQERpyjLL1rM45Ywf3uRJgGafabQ9t3fnC4BuPpXPn',
+            },
+            gridStatus: {
+              type: 'string',
+              description: 'Grid account status',
+              nullable: true,
+              example: 'success',
+            },
+            gridPolicies: {
+              type: 'object',
+              description: 'Grid account policies',
+              nullable: true,
+              example: {
+                signers: [
+                  {
+                    address: 'FxPUhEZnfgewKSynpq82htKRCuwkKKgHndrDKFBZzoav',
+                    role: 'primary',
+                    permissions: ['CAN_INITIATE', 'CAN_VOTE', 'CAN_EXECUTE'],
+                    provider: 'privy'
+                  }
+                ],
+                threshold: 1,
+                time_lock: null,
+                admin_address: null
+              },
+            },
             createdAt: {
               type: 'string',
               format: 'date-time',
@@ -425,6 +455,133 @@ const options: swaggerJsdoc.Options = {
               type: 'string',
               description: 'Application version',
               example: '1.0.0',
+            },
+          },
+        },
+        TokenBalance: {
+          type: 'object',
+          required: ['balance', 'formattedBalance', 'decimals', 'mint', 'symbol', 'uiAmount'],
+          properties: {
+            balance: {
+              type: 'string',
+              description: 'Raw token balance as a string (to handle large numbers)',
+              example: '1000000',
+            },
+            formattedBalance: {
+              type: 'string',
+              description: 'Human-readable formatted balance',
+              example: '1.000000',
+            },
+            decimals: {
+              type: 'integer',
+              description: 'Number of decimal places for this token',
+              example: 6,
+            },
+            mint: {
+              type: 'string',
+              description: 'Token mint address',
+              example: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+            },
+            symbol: {
+              type: 'string',
+              description: 'Token symbol',
+              example: 'USDC',
+            },
+            uiAmount: {
+              type: 'number',
+              description: 'Balance as a number for UI display',
+              example: 1.0,
+            },
+          },
+        },
+        UserBalancesResponse: {
+          type: 'object',
+          required: ['user', 'balances'],
+          properties: {
+            user: {
+              type: 'object',
+              required: ['id', 'email', 'firstName', 'lastName', 'walletAddress'],
+              properties: {
+                id: {
+                  type: 'string',
+                  description: 'User ID',
+                  example: '123e4567-e89b-12d3-a456-426614174000',
+                },
+                email: {
+                  type: 'string',
+                  format: 'email',
+                  description: 'User email address',
+                  example: 'john.doe@example.com',
+                },
+                firstName: {
+                  type: 'string',
+                  description: 'User first name',
+                  example: 'John',
+                },
+                lastName: {
+                  type: 'string',
+                  description: 'User last name',
+                  example: 'Doe',
+                },
+                walletAddress: {
+                  type: 'string',
+                  description: 'User wallet address',
+                  example: 'GC52tLZUiuz8UDSi7BUWn62473Cje3sGKTjxjRZ7oeEz',
+                },
+              },
+            },
+            balances: {
+              type: 'object',
+              required: ['sol', 'usdc'],
+              properties: {
+                sol: {
+                  $ref: '#/components/schemas/TokenBalance',
+                  description: 'SOL balance information',
+                },
+                usdc: {
+                  $ref: '#/components/schemas/TokenBalance',
+                  description: 'USDC balance information',
+                },
+                summary: {
+                  type: 'object',
+                  required: ['totalTokens', 'hasNative', 'hasUsdc'],
+                  properties: {
+                    totalTokens: {
+                      type: 'integer',
+                      description: 'Total number of SPL tokens',
+                      example: 5,
+                    },
+                    hasNative: {
+                      type: 'boolean',
+                      description: 'Whether the account has native SOL',
+                      example: true,
+                    },
+                    hasUsdc: {
+                      type: 'boolean',
+                      description: 'Whether the account has USDC',
+                      example: true,
+                    },
+                    queryParams: {
+                      type: 'object',
+                      description: 'Query parameters used (if any)',
+                      nullable: true,
+                    },
+                  },
+                },
+                allTokens: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    description: 'All SPL token balances',
+                  },
+                  description: 'Complete list of all token balances',
+                },
+                native: {
+                  type: 'object',
+                  nullable: true,
+                  description: 'Native SOL balance information',
+                },
+              },
             },
           },
         },
