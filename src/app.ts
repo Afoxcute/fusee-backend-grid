@@ -103,8 +103,10 @@ app.get('/health', (req, res) => {
 
 // API routes
 import userRoutes from './routes/user.routes';
+import authRoutes from './routes/auth.routes';
 
 app.use('/api/users', userRoutes);
+app.use('/api/auth', authRoutes);
 
 // 404 handler
 app.use((req, res) => {

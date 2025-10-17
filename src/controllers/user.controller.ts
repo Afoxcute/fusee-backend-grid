@@ -2,6 +2,10 @@
 import { Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import Logger from '../utils/logger';
+
+export interface AuthenticatedRequest extends Request {
+  userId: string;
+}
 import gridClient from '../lib/squad';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -10,17 +14,15 @@ import {
   removePending,
   PENDING_TTL_MS,
 } from '../lib/gridSessions';
-import { addToRetryQueue } from '../services/retry.service';
 import {
-  createUserSchema,
-  updateUserSchema,
-  initiateGridAccountSchema,
-  completeGridAccountSchema,
   CreateUserInput,
   UpdateUserInput,
   InitiateGridAccountInput,
   CompleteGridAccountInput,
+  UserLoginInput,
 } from '../schemas/user.schemas';
+import { generateToken } from '../middleware/auth.middleware';
+import { CompleteLoginInput } from '../schemas/auth.schemas';
 
 // Token mint addresses
 const TOKEN_MINTS = {
@@ -127,8 +129,9 @@ export const getUserById = async (req: Request, res: Response) => {
         isActive: true,
         createdAt: true,
         updatedAt: true,
-        // Grid account fields (will be available after migration)
-        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+        gridAddress: true,
+        gridStatus: true,
+        gridPolicies: true,
       },
     });
 
@@ -165,8 +168,9 @@ export const getUserByEmail = async (req: Request, res: Response) => {
         isActive: true,
         createdAt: true,
         updatedAt: true,
-        // Grid account fields (will be available after migration)
-        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+        gridAddress: true,
+        gridStatus: true,
+        gridPolicies: true,
       },
     });
 
@@ -197,8 +201,9 @@ export const getUsers = async (req: Request, res: Response) => {
         isActive: true,
         createdAt: true,
         updatedAt: true,
-        // Grid account fields (will be available after migration)
-        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+        gridAddress: true,
+        gridStatus: true,
+        gridPolicies: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -326,8 +331,9 @@ export const updateUser = async (req: Request, res: Response) => {
         isActive: true,
         createdAt: true,
         updatedAt: true,
-        // Grid account fields (will be available after migration)
-        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+        gridAddress: true,
+        gridStatus: true,
+        gridPolicies: true,
       },
     });
 
@@ -365,8 +371,9 @@ export const deleteUser = async (req: Request, res: Response) => {
         isActive: true,
         createdAt: true,
         updatedAt: true,
-        // Grid account fields (will be available after migration)
-        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+        gridAddress: true,
+        gridStatus: true,
+        gridPolicies: true,
       },
     });
 
@@ -521,12 +528,10 @@ export const completeGridAccount = async (req: Request, res: Response) => {
                      walletAddress, // Use extracted wallet address
                      role: 'USER',
                      isActive: true,
-                     // Store Grid account data (will be available after migration)
-                     ...({
-                       gridAddress: authResult.data?.address || null,
-                       gridStatus: authResult.data?.status || null,
-                       gridPolicies: authResult.data?.policies || null,
-                     } as any),
+                     // Store Grid account data
+                     gridAddress: authResult.data?.address || null,
+                     gridStatus: authResult.data?.status || null,
+                     gridPolicies: authResult.data?.policies as any || undefined,
                    },
                    select: {
                      id: true,
@@ -540,8 +545,9 @@ export const completeGridAccount = async (req: Request, res: Response) => {
                      isActive: true,
                      createdAt: true,
                      updatedAt: true,
-                     // Grid account fields (will be available after migration)
-                     ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+                     gridAddress: true,
+                     gridStatus: true,
+                     gridPolicies: true,
                    },
                  });
 
@@ -601,6 +607,7 @@ export const completeGridAccount = async (req: Request, res: Response) => {
 };
 
 // Get user account balances (SOL and SPL tokens including USDC on devnet)
+// Get user account balances directly from Solana blockchain
 export const getUserBalances = async (req: Request, res: Response) => {
   try {
     const { email } = req.params;
@@ -615,8 +622,9 @@ export const getUserBalances = async (req: Request, res: Response) => {
         firstName: true,
         lastName: true,
         walletAddress: true,
-        // Grid account fields (will be available after migration)
-        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+        gridAddress: true,
+        gridStatus: true,
+        gridPolicies: true,
       },
     });
 
@@ -771,8 +779,9 @@ export const getUserBalancesByWallet = async (req: Request, res: Response) => {
         firstName: true,
         lastName: true,
         walletAddress: true,
-        // Grid account fields (will be available after migration)
-        ...({ gridAddress: true, gridStatus: true, gridPolicies: true } as any),
+        gridAddress: true,
+        gridStatus: true,
+        gridPolicies: true,
       },
     });
 
@@ -909,6 +918,382 @@ export const getUserBalancesByWallet = async (req: Request, res: Response) => {
   } catch (error) {
     Logger.error('Error fetching balances by wallet address:', error);
     res.status(500).json({ error: 'Failed to fetch balances by wallet address' });
+  }
+};
+
+// Debug endpoint to check raw Grid API response for a specific user
+export const updateUserGridData = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+    const { gridAddress, gridStatus, gridPolicies } = req.body;
+
+    if (!gridAddress) {
+      return res.status(400).json({ error: 'Grid address is required' });
+    }
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        gridPolicies: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Update user with Grid account data
+    const updatedUser = await prisma.user.update({
+      where: { email },
+      data: {
+        gridAddress,
+        gridStatus: gridStatus || 'success',
+        gridPolicies: gridPolicies as any || undefined,
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        gridPolicies: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    Logger.info(`Updated user ${email} with Grid account data: ${gridAddress}`);
+
+    res.json({
+      message: 'User Grid account data updated successfully',
+      user: updatedUser,
+    });
+  } catch (error) {
+    Logger.error('Error updating user Grid account data:', error);
+    res.status(500).json({ error: 'Failed to update user Grid account data' });
+  }
+};
+
+export const debugUserBalances = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        gridPolicies: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.gridAddress) {
+      return res.status(400).json({ error: 'User does not have a Grid account address' });
+    }
+
+    // Validate Grid configuration
+    const gridConfig = validateGridConfig();
+    if (!gridConfig.valid) {
+      return res.status(500).json({ 
+        error: 'Grid service configuration error',
+        details: gridConfig.error
+      });
+    }
+
+    // Get raw account balances from Grid
+    Logger.info(`Debug: Fetching raw balances for Grid account: ${user.gridAddress}`);
+    
+    let balances;
+    try {
+      balances = await gridClient.getAccountBalances(user.gridAddress);
+      
+      Logger.info('Debug: Raw Grid API response:', {
+        success: balances?.success,
+        error: balances?.error,
+        data: balances?.data,
+        gridAddress: user.gridAddress
+      });
+
+      res.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          walletAddress: user.walletAddress,
+          gridAddress: user.gridAddress,
+          gridStatus: user.gridStatus,
+          gridPolicies: user.gridPolicies,
+        },
+        debug: {
+          gridApiSuccess: balances?.success,
+          gridApiError: balances?.error,
+          rawGridResponse: balances?.data,
+          tokenCount: balances?.data?.tokens?.length || 0,
+          hasNative: !!(balances?.data as any)?.native,
+          nativeBalance: (balances?.data as any)?.native,
+          allTokens: balances?.data?.tokens || [],
+        }
+      });
+    } catch (gridError) {
+      Logger.error('Debug: Grid API error:', {
+        error: gridError,
+        gridAddress: user.gridAddress,
+        message: gridError instanceof Error ? gridError.message : 'Unknown error'
+      });
+      
+      res.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          walletAddress: user.walletAddress,
+          gridAddress: user.gridAddress,
+          gridStatus: user.gridStatus,
+          gridPolicies: user.gridPolicies,
+        },
+        debug: {
+          gridApiSuccess: false,
+          gridApiError: gridError instanceof Error ? gridError.message : 'Unknown error',
+          rawGridResponse: null,
+          error: gridError
+        }
+      });
+    }
+  } catch (error) {
+    Logger.error('Debug: Error in debugUserBalances:', error);
+    res.status(500).json({ error: 'Failed to debug user balances' });
+  }
+};
+
+// Regular login process
+export const login = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body as UserLoginInput;
+
+    // Check if user exists in our database
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        isActive: true,
+      },
+    });
+
+    if (!existingUser) {
+      return res.status(401).json({
+        message: "User doesn't exist. Please sign up before proceeding",
+      });
+    }
+
+    if (!existingUser.isActive) {
+      return res.status(401).json({
+        message: 'Account is inactive. Please contact support.',
+      });
+    }
+
+    // Generate JWT token
+    const token = generateToken(existingUser.id);
+
+    Logger.info(`Login successful for user ${email}`);
+
+    return res.status(200).json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: existingUser.id,
+        email: existingUser.email,
+        firstName: existingUser.firstName,
+        lastName: existingUser.lastName,
+        walletAddress: existingUser.walletAddress,
+        gridAddress: existingUser.gridAddress,
+        gridStatus: existingUser.gridStatus,
+      },
+    });
+  } catch (error) {
+    Logger.error('Error initiating login:', error);
+    res.status(500).json({ error: 'Failed to initiate login process' });
+  }
+};
+
+// Initiate Grid-based login (sends OTP email)
+export const initiateLogin = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body as UserLoginInput;
+
+    // Check if user exists in our database
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        isActive: true,
+      },
+    });
+
+    if (!existingUser) {
+      return res.status(401).json({
+        message: "User doesn't exist. Please sign up before proceeding",
+      });
+    }
+
+    if (!existingUser.isActive) {
+      return res.status(401).json({
+        message: 'Account is inactive. Please contact support.',
+      });
+    }
+
+    // Create Grid authentication session
+    const response = await gridClient.createAccount({ email });
+    const user = response.data;
+
+    const sessionSecrets = await gridClient.generateSessionSecrets();
+
+    const pendingKey = uuidv4();
+    const createdAt = Date.now();
+    await savePending(pendingKey, {
+      user: existingUser, // Use existing user data
+      sessionSecrets,
+      createdAt,
+    });
+
+    const expiresAt = new Date(createdAt + PENDING_TTL_MS).toISOString();
+    const maskedKey = `${pendingKey.slice(0, 8)}...${pendingKey.slice(-4)}`;
+
+    Logger.info(`Initiated Grid login for user ${email}, pendingKey=${pendingKey}`);
+
+    res.status(201).json({ 
+      message: 'OTP sent to your email. Please check your inbox.',
+      pendingKey, 
+      maskedKey, 
+      expiresAt 
+    });
+  } catch (error) {
+    Logger.error('Error initiating Grid login:', error);
+    res.status(500).json({ error: 'Failed to initiate Grid login process' });
+  }
+};
+
+export const completeLogin = async (req: Request, res: Response) => {
+  try {
+    const { pendingKey, otpCode } = req.body as CompleteLoginInput;
+
+    const pending = await getPending(pendingKey);
+    if (!pending) {
+      return res
+        .status(410)
+        .json({ error: 'Pending session not found or expired' });
+    }
+
+    const sessionSecrets = await gridClient.generateSessionSecrets();
+
+    const authResult = await gridClient.completeAuth({
+      user: pending.user,
+      otpCode,
+      sessionSecrets,
+    });
+
+    if (!authResult?.success) {
+      Logger.error('Grid authentication completion failed:', authResult);
+      return res.status(401).json({
+        error: 'Authentication failed',
+        details: authResult?.error || 'Invalid verification code',
+      });
+    }
+
+    // Generate JWT token
+    const token = generateToken(pending.user.id);
+
+    // Clean up pending session
+    await removePending(pendingKey);
+
+    Logger.info(`Login completed successfully for user ${pending.user.email}`);
+
+    return res.status(200).json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: pending.user.id,
+        email: pending.user.email,
+        firstName: pending.user.firstName,
+        lastName: pending.user.lastName,
+        walletAddress: pending.user.walletAddress,
+        gridAddress: pending.user.gridAddress,
+        gridStatus: pending.user.gridStatus,
+      },
+    });
+  } catch (error) {
+    Logger.error('Error completing login:', error);
+    res.status(500).json({ error: 'Failed to complete login process' });
+  }
+};
+
+// Get current authenticated user
+export const getCurrentUser = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: (req as any).userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        phoneNumber: true,
+        walletAddress: true,
+        role: true,
+        isActive: true,
+        gridAddress: true,
+        gridStatus: true,
+        gridPolicies: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ user });
+  } catch (error) {
+    Logger.error('Error fetching current user:', error);
+    res.status(500).json({ error: 'Failed to fetch user information' });
   }
 };
 

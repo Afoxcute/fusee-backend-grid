@@ -585,6 +585,93 @@ const options: swaggerJsdoc.Options = {
             },
           },
         },
+        LoginRequest: {
+          type: 'object',
+          required: ['email'],
+          properties: {
+            email: {
+              type: 'string',
+              format: 'email',
+              description: 'User email address',
+              example: 'john.doe@example.com',
+            },
+          },
+        },
+        CompleteLoginRequest: {
+          type: 'object',
+          required: ['pendingKey', 'otpCode'],
+          properties: {
+            pendingKey: {
+              type: 'string',
+              description: 'Pending session key from login initiation',
+              example: 'abc123...xyz789',
+            },
+            otpCode: {
+              type: 'string',
+              pattern: '^[0-9]{6}$',
+              description: 'OTP code received via email (6 digits)',
+              example: '123456',
+            },
+          },
+        },
+        LoginResponse: {
+          type: 'object',
+          required: ['message', 'token', 'user'],
+          properties: {
+            message: {
+              type: 'string',
+              description: 'Login success message',
+              example: 'Login successful',
+            },
+            token: {
+              type: 'string',
+              description: 'JWT authentication token',
+              example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+            },
+            user: {
+              type: 'object',
+              required: ['id', 'email', 'firstName', 'lastName'],
+              properties: {
+                id: {
+                  type: 'string',
+                  description: 'User ID',
+                  example: '123e4567-e89b-12d3-a456-426614174000',
+                },
+                email: {
+                  type: 'string',
+                  format: 'email',
+                  description: 'User email address',
+                  example: 'john.doe@example.com',
+                },
+                firstName: {
+                  type: 'string',
+                  description: 'User first name',
+                  example: 'John',
+                },
+                lastName: {
+                  type: 'string',
+                  description: 'User last name',
+                  example: 'Doe',
+                },
+                walletAddress: {
+                  type: 'string',
+                  description: 'User wallet address',
+                  example: 'GC52tLZUiuz8UDSi7BUWn62473Cje3sGKTjxjRZ7oeEz',
+                },
+                gridAddress: {
+                  type: 'string',
+                  description: 'Grid account address',
+                  example: 'YmeQtLhGS2GhLcBiGug6Pv1dTv75vUKFCSwdb2nffzV',
+                },
+                gridStatus: {
+                  type: 'string',
+                  description: 'Grid account status',
+                  example: 'success',
+                },
+              },
+            },
+          },
+        },
       },
       securitySchemes: {
         ApiKeyAuth: {
@@ -592,6 +679,12 @@ const options: swaggerJsdoc.Options = {
           in: 'header',
           name: 'Authorization',
           description: 'API key authentication',
+        },
+        BearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'JWT Bearer token authentication',
         },
       },
     },

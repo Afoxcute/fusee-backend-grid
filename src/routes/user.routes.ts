@@ -6,6 +6,7 @@ import {
   updateUserSchema,
   initiateGridAccountSchema,
   completeGridAccountSchema,
+  gridLoginSchema,
 } from '../schemas/user.schemas';
 
 const router = Router();
@@ -527,6 +528,88 @@ router.post('/grid/initiate', validateRequest(initiateGridAccountSchema), userCo
  */
 router.post('/grid/complete', validateRequest(completeGridAccountSchema), userController.completeGridAccount);
 
+/**
+ * @swagger
+ * /api/users/grid/login:
+ *   post:
+ *     summary: Grid-based user login
+ *     description: |
+ *       Authenticate a user using Grid-based authentication. This endpoint provides an alternative
+ *       login method that integrates with the Grid system for enhanced security.
+ *       
+ *       **Authentication Flow:**
+ *       1. User provides their email address
+ *       2. System validates the user exists and is active
+ *       3. Returns JWT token for authenticated requests
+ *       
+ *       **Security Features:**
+ *       - Email validation
+ *       - Active user verification
+ *       - JWT token generation with 24-hour expiry
+ *       - Grid system integration
+ *     tags: [Users, Authentication, Grid]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/LoginRequest'
+ *           examples:
+ *             validLogin:
+ *               summary: Valid Grid login request
+ *               value:
+ *                 email: "john.doe@example.com"
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/LoginResponse'
+ *             examples:
+ *               success:
+ *                 summary: Successful Grid login
+ *                 value:
+ *                   message: "Login successful"
+ *                   token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                   user:
+ *                     id: "123e4567-e89b-12d3-a456-426614174000"
+ *                     email: "john.doe@example.com"
+ *                     firstName: "John"
+ *                     lastName: "Doe"
+ *                     walletAddress: "GC52tLZUiuz8UDSi7BUWn62473Cje3sGKTjxjRZ7oeEz"
+ *                     gridAddress: "YmeQtLhGS2GhLcBiGug6Pv1dTv75vUKFCSwdb2nffzV"
+ *                     gridStatus: "success"
+ *       401:
+ *         description: Authentication failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               userNotFound:
+ *                 summary: User not found
+ *                 value:
+ *                   message: "User doesn't exist. Please sign up before proceeding"
+ *               inactiveUser:
+ *                 summary: Inactive user
+ *                 value:
+ *                   message: "Account is inactive. Please contact support."
+ *       400:
+ *         description: Bad request - Invalid input data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ValidationError'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/grid/login', validateRequest(gridLoginSchema), userController.login);
+
 // Balance routes
 /**
  * @swagger
@@ -650,6 +733,107 @@ router.get('/email/:email/balances', userController.getUserBalances);
  *               $ref: '#/components/schemas/Error'
  */
 router.get('/wallet/:walletAddress/balances', userController.getUserBalancesByWallet);
+
+// Debug endpoint for troubleshooting balance issues
+/**
+ * @swagger
+ * /api/users/email/{email}/debug-balances:
+ *   get:
+ *     summary: Debug user balances
+ *     description: Debug endpoint to check raw Grid API response for troubleshooting balance issues
+ *     tags: [Users, Debug]
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: email
+ *         description: User email address
+ *         example: "user@example.com"
+ *     responses:
+ *       200:
+ *         description: Debug information for user balances
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                   description: User information
+ *                 debug:
+ *                   type: object
+ *                   description: Debug information including raw Grid API response
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/email/:email/debug-balances', userController.debugUserBalances);
+
+// Update user Grid account data endpoint
+/**
+ * @swagger
+ * /api/users/email/{email}/update-grid-data:
+ *   put:
+ *     summary: Update user Grid account data
+ *     description: Update a user's Grid account data (address, status, policies) for debugging purposes
+ *     tags: [Users, Debug]
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: email
+ *         description: User email address
+ *         example: "user@example.com"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [gridAddress]
+ *             properties:
+ *               gridAddress:
+ *                 type: string
+ *                 description: Grid account address
+ *                 example: "YmeQtLhGS2GhLcBiGug6Pv1dTv75vUKFCSwdb2nffzV"
+ *               gridStatus:
+ *                 type: string
+ *                 description: Grid account status
+ *                 example: "success"
+ *               gridPolicies:
+ *                 type: object
+ *                 description: Grid account policies
+ *                 example:
+ *                   signers: []
+ *                   threshold: 1
+ *                   time_lock: null
+ *                   admin_address: null
+ *     responses:
+ *       200:
+ *         description: User Grid account data updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "User Grid account data updated successfully"
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Bad request - Grid address is required
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.put('/email/:email/update-grid-data', userController.updateUserGridData);
 
 // Test endpoint for debugging Grid configuration
 /**

@@ -119,9 +119,19 @@ export const completeGridAccountSchema = z.object({
   otpCode: z.string().regex(/^[0-9]{6}$/, 'OTP code must be exactly 6 digits'),
 });
 
+// User login schema
+export const gridLoginSchema = z.object({
+  email: z
+    .string()
+    .email('Please provide a valid email address')
+    .min(1, 'Email is required')
+    .max(255, 'Email must be less than 255 characters'),
+});
+
 // Type exports for TypeScript
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type InitiateGridAccountInput = z.infer<typeof initiateGridAccountSchema>;
 export type CompleteGridAccountInput = z.infer<typeof completeGridAccountSchema>;
+export type UserLoginInput = z.infer<typeof gridLoginSchema>;
 
