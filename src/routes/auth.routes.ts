@@ -3,6 +3,8 @@ import {
   login,
   initiateLogin,
   completeLogin,
+  initGridAuth,
+  completeGridAuth,
   getCurrentUser,
 } from '../controllers/user.controller';
 import { validateRequest } from '../middleware/validation.middleware';
@@ -189,6 +191,234 @@ router.post('/login', login);
  *               $ref: '#/components/schemas/Error'
  */
 router.post('/login/initiate', validateRequest(gridLoginSchema), initiateLogin);
+
+/**
+ * @swagger
+ * /api/auth/grid/init:
+ *   post:
+ *     summary: Initialize Grid SDK authentication
+ *     description: |
+ *       Initialize Grid SDK-based authentication using the initAuth method. This is the new
+ *       Grid SDK authentication system that provides enhanced security and features.
+ *       
+ *       **Authentication Flow:**
+ *       1. User provides their email address
+ *       2. System validates the user exists and is active
+ *       3. Grid SDK initAuth method is called
+ *       4. Returns pending key for completing authentication
+ *       
+ *       **Security Features:**
+ *       - Email validation
+ *       - Active user verification
+ *       - Grid SDK initAuth integration
+ *       - Pending session with expiration
+ *       - Enhanced security through Grid SDK
+ *     tags: [Authentication, Grid SDK]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/LoginRequest'
+ *           examples:
+ *             validInit:
+ *               summary: Valid Grid SDK initialization
+ *               value:
+ *                 email: "john.doe@example.com"
+ *     responses:
+ *       201:
+ *         description: Grid SDK authentication initialized successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: ['message', 'pendingKey', 'maskedKey', 'expiresAt', 'authData']
+ *               properties:
+ *                 message:
+ *                   type: 'string'
+ *                   description: 'Success message'
+ *                   example: 'Grid authentication initialized successfully'
+ *                 pendingKey:
+ *                   type: 'string'
+ *                   description: 'Pending session key for completing authentication'
+ *                   example: 'abc123...xyz789'
+ *                 maskedKey:
+ *                   type: 'string'
+ *                   description: 'Masked version of pending key for display'
+ *                   example: 'abc123...z789'
+ *                 expiresAt:
+ *                   type: 'string'
+ *                   format: 'date-time'
+ *                   description: 'Expiration time for the pending session'
+ *                   example: '2023-01-01T01:00:00.000Z'
+ *                 authData:
+ *                   type: 'object'
+ *                   description: 'Grid SDK authentication data'
+ *                   properties:
+ *                     success:
+ *                       type: 'boolean'
+ *                       example: true
+ *                     data:
+ *                       type: 'object'
+ *                       description: 'Grid SDK response data'
+ *             examples:
+ *               success:
+ *                 summary: Successful Grid SDK initialization
+ *                 value:
+ *                   message: "Grid authentication initialized successfully"
+ *                   pendingKey: "abc123...xyz789"
+ *                   maskedKey: "abc123...z789"
+ *                   expiresAt: "2023-01-01T01:00:00.000Z"
+ *                   authData:
+ *                     success: true
+ *                     data: {}
+ *       401:
+ *         description: Authentication failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               userNotFound:
+ *                 summary: User not found
+ *                 value:
+ *                   message: "User doesn't exist. Please sign up before proceeding"
+ *               inactiveUser:
+ *                 summary: Inactive user
+ *                 value:
+ *                   message: "Account is inactive. Please contact support."
+ *       400:
+ *         description: Bad request - Invalid input data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ValidationError'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/grid/init', validateRequest(gridLoginSchema), initGridAuth);
+
+/**
+ * @swagger
+ * /api/auth/grid/complete:
+ *   post:
+ *     summary: Complete Grid SDK authentication
+ *     description: |
+ *       Complete the Grid SDK-based authentication process using OTP verification. This endpoint
+ *       completes the authentication flow initiated by the Grid SDK initAuth method.
+ *       
+ *       **Authentication Flow:**
+ *       1. User provides pending key and OTP code
+ *       2. System validates the pending session
+ *       3. Grid SDK completeAuth method is called
+ *       4. Returns JWT token for authenticated requests
+ *       
+ *       **Security Features:**
+ *       - OTP code validation (6 digits)
+ *       - Pending session validation
+ *       - Grid SDK completeAuth integration
+ *       - Secure session cleanup
+ *       - JWT token generation
+ *     tags: [Authentication, Grid SDK]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CompleteLoginRequest'
+ *           examples:
+ *             validCompletion:
+ *               summary: Valid Grid SDK completion
+ *               value:
+ *                 pendingKey: "abc123...xyz789"
+ *                 otpCode: "123456"
+ *     responses:
+ *       200:
+ *         description: Grid SDK authentication completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: ['message', 'token', 'user', 'authData']
+ *               properties:
+ *                 message:
+ *                   type: 'string'
+ *                   description: 'Success message'
+ *                   example: 'Grid authentication successful'
+ *                 token:
+ *                   type: 'string'
+ *                   description: 'JWT authentication token'
+ *                   example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+ *                 user:
+ *                   $ref: '#/components/schemas/LoginResponse/properties/user'
+ *                 authData:
+ *                   type: 'object'
+ *                   description: 'Grid SDK authentication data'
+ *                   properties:
+ *                     success:
+ *                       type: 'boolean'
+ *                       example: true
+ *                     data:
+ *                       type: 'object'
+ *                       description: 'Grid SDK response data'
+ *             examples:
+ *               success:
+ *                 summary: Successful Grid SDK completion
+ *                 value:
+ *                   message: "Grid authentication successful"
+ *                   token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                   user:
+ *                     id: "123e4567-e89b-12d3-a456-426614174000"
+ *                     email: "john.doe@example.com"
+ *                     firstName: "John"
+ *                     lastName: "Doe"
+ *                     walletAddress: "GC52tLZUiuz8UDSi7BUWn62473Cje3sGKTjxjRZ7oeEz"
+ *                     gridAddress: "YmeQtLhGS2GhLcBiGug6Pv1dTv75vUKFCSwdb2nffzV"
+ *                     gridStatus: "success"
+ *                   authData:
+ *                     success: true
+ *                     data: {}
+ *       401:
+ *         description: Authentication failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               invalidOtp:
+ *                 summary: Invalid OTP code
+ *                 value:
+ *                   error: "Authentication failed"
+ *                   details: "Invalid verification code"
+ *       410:
+ *         description: Gone - Pending session expired
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               expiredSession:
+ *                 summary: Expired session
+ *                 value:
+ *                   error: "Pending session not found or expired"
+ *       400:
+ *         description: Bad request - Invalid input data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ValidationError'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/grid/complete', validateRequest(completeLoginSchema), completeGridAuth);
 
 /**
  * @swagger

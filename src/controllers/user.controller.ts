@@ -1260,6 +1260,140 @@ export const completeLogin = async (req: Request, res: Response) => {
   }
 };
 
+// NEW GRID SDK-BASED AUTHENTICATION SYSTEM
+// Initialize Grid authentication for existing users
+export const initGridAuth = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body as UserLoginInput;
+
+    // Check if user exists in our database
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        isActive: true,
+      },
+    });
+
+    if (!existingUser) {
+      return res.status(401).json({
+        message: "User doesn't exist. Please sign up before proceeding",
+      });
+    }
+
+    if (!existingUser.isActive) {
+      return res.status(401).json({
+        message: 'Account is inactive. Please contact support.',
+      });
+    }
+
+    // Initialize Grid authentication using initAuth
+    const authResult = await gridClient.initAuth({
+      email: existingUser.email,
+    });
+
+    if (!authResult?.success) {
+      Logger.error('Grid initAuth failed:', authResult);
+      return res.status(500).json({
+        error: 'Failed to initialize Grid authentication',
+        details: authResult?.error || 'Grid authentication initialization failed',
+      });
+    }
+
+    // Store pending session for completion
+    const pendingKey = uuidv4();
+    const createdAt = Date.now();
+    await savePending(pendingKey, {
+      user: existingUser,
+      sessionSecrets: null, // Grid SDK initAuth doesn't return sessionSecrets
+      createdAt,
+    });
+
+    const expiresAt = new Date(createdAt + PENDING_TTL_MS).toISOString();
+    const maskedKey = `${pendingKey.slice(0, 8)}...${pendingKey.slice(-4)}`;
+
+    Logger.info(`Grid initAuth successful for user ${email}, pendingKey=${pendingKey}`);
+
+    res.status(201).json({
+      message: 'Grid authentication initialized successfully',
+      pendingKey,
+      maskedKey,
+      expiresAt,
+      authData: {
+        success: authResult.success,
+        data: authResult.data,
+      },
+    });
+  } catch (error) {
+    Logger.error('Error initializing Grid authentication:', error);
+    res.status(500).json({ error: 'Failed to initialize Grid authentication' });
+  }
+};
+
+// Complete Grid SDK authentication
+export const completeGridAuth = async (req: Request, res: Response) => {
+  try {
+    const { pendingKey, otpCode } = req.body as CompleteLoginInput;
+
+    const pending = await getPending(pendingKey);
+    if (!pending) {
+      return res
+        .status(410)
+        .json({ error: 'Pending session not found or expired' });
+    }
+
+    // Complete Grid authentication using the stored session
+    const authResult = await gridClient.completeAuth({
+      user: pending.user,
+      otpCode,
+      sessionSecrets: pending.sessionSecrets || await gridClient.generateSessionSecrets(),
+    });
+
+    if (!authResult?.success) {
+      Logger.error('Grid authentication completion failed:', authResult);
+      return res.status(401).json({
+        error: 'Authentication failed',
+        details: authResult?.error || 'Invalid verification code',
+      });
+    }
+
+    // Generate JWT token
+    const token = generateToken(pending.user.id);
+
+    // Clean up pending session
+    await removePending(pendingKey);
+
+    Logger.info(`Grid authentication completed successfully for user ${pending.user.email}`);
+
+    return res.status(200).json({
+      message: 'Grid authentication successful',
+      token,
+      user: {
+        id: pending.user.id,
+        email: pending.user.email,
+        firstName: pending.user.firstName,
+        lastName: pending.user.lastName,
+        walletAddress: pending.user.walletAddress,
+        gridAddress: pending.user.gridAddress,
+        gridStatus: pending.user.gridStatus,
+      },
+      authData: {
+        success: authResult.success,
+        data: authResult.data,
+      },
+    });
+  } catch (error) {
+    Logger.error('Error completing Grid authentication:', error);
+    res.status(500).json({ error: 'Failed to complete Grid authentication' });
+  }
+};
+
 // Get current authenticated user
 export const getCurrentUser = async (
   req: Request,
