@@ -20,7 +20,7 @@ const options: swaggerJsdoc.Options = {
         description: 'Development server',
       },
       {
-        url: 'https://api.fusee.com',
+        url: 'https://fusee-backend-grid-nyic.onrender.com',
         description: 'Production server',
       },
     ],
