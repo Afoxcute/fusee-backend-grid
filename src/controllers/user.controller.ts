@@ -1274,12 +1274,12 @@ export const getUserBalances = async (req: Request, res: Response) => {
     // Note: Using type assertion to handle Grid SDK response structure
     const processedBalances = {
       sol: {
-        balance: (balancesData as any)?.native?.balance || '0',
-        formattedBalance: (balancesData as any)?.native?.formattedBalance || '0',
-        decimals: (balancesData as any)?.native?.decimals || 9,
+        balance: (balancesData as any)?.lamports?.toString() || '0',
+        formattedBalance: (balancesData as any)?.sol?.toString() || '0',
+        decimals: 9,
         mint: 'So11111111111111111111111111111111111111112',
         symbol: 'SOL',
-        uiAmount: parseFloat((balancesData as any)?.native?.formattedBalance || '0')
+        uiAmount: parseFloat((balancesData as any)?.sol?.toString() || '0')
       },
       usdc: {
         balance: '0',
@@ -1291,32 +1291,32 @@ export const getUserBalances = async (req: Request, res: Response) => {
       },
       summary: {
         totalTokens: balancesData?.tokens?.length || 0,
-        hasNative: !!((balancesData as any)?.native?.balance && (balancesData as any).native.balance !== '0'),
+        hasNative: !!((balancesData as any)?.sol && parseFloat((balancesData as any).sol.toString()) > 0),
         hasUsdc: false,
         queryParams: queryParams,
         source: 'grid-sdk',
         gridAddress: gridAddress
       },
       allTokens: balancesData?.tokens || [],
-      native: (balancesData as any)?.native || null
+      native: null
     };
 
     // Find USDC token in the tokens array
     if (balancesData?.tokens) {
       const usdcToken = balancesData.tokens.find((token: any) => 
-        token.mint === '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
+        token.token_address === '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
       );
       
       if (usdcToken) {
         processedBalances.usdc = {
-          balance: (usdcToken as any).balance || '0',
-          formattedBalance: (usdcToken as any).formattedBalance || '0',
-          decimals: (usdcToken as any).decimals || 6,
-          mint: (usdcToken as any).mint,
-          symbol: (usdcToken as any).symbol || 'USDC',
-          uiAmount: parseFloat((usdcToken as any).formattedBalance || '0')
+          balance: usdcToken.amount?.toString() || '0',
+          formattedBalance: usdcToken.amount_decimal?.toString() || '0',
+          decimals: usdcToken.decimals || 6,
+          mint: usdcToken.token_address,
+          symbol: usdcToken.symbol || 'USDC',
+          uiAmount: parseFloat(usdcToken.amount_decimal?.toString() || '0')
         };
-        processedBalances.summary.hasUsdc = parseFloat((usdcToken as any).formattedBalance || '0') > 0;
+        processedBalances.summary.hasUsdc = parseFloat(usdcToken.amount_decimal?.toString() || '0') > 0;
       }
     }
 
@@ -1423,12 +1423,12 @@ export const getUserBalancesByWallet = async (req: Request, res: Response) => {
     // Note: Using type assertion to handle Grid SDK response structure
     const processedBalances = {
       sol: {
-        balance: (balancesData as any)?.native?.balance || '0',
-        formattedBalance: (balancesData as any)?.native?.formattedBalance || '0',
-        decimals: (balancesData as any)?.native?.decimals || 9,
+        balance: (balancesData as any)?.lamports?.toString() || '0',
+        formattedBalance: (balancesData as any)?.sol?.toString() || '0',
+        decimals: 9,
         mint: 'So11111111111111111111111111111111111111112',
         symbol: 'SOL',
-        uiAmount: parseFloat((balancesData as any)?.native?.formattedBalance || '0')
+        uiAmount: parseFloat((balancesData as any)?.sol?.toString() || '0')
       },
       usdc: {
         balance: '0',
@@ -1440,7 +1440,7 @@ export const getUserBalancesByWallet = async (req: Request, res: Response) => {
       },
       summary: {
         totalTokens: balancesData?.tokens?.length || 0,
-        hasNative: !!((balancesData as any)?.native?.balance && (balancesData as any).native.balance !== '0'),
+        hasNative: !!((balancesData as any)?.sol && parseFloat((balancesData as any).sol.toString()) > 0),
         hasUsdc: false,
         queryParams: queryParams,
         source: 'grid-sdk',
@@ -1448,25 +1448,25 @@ export const getUserBalancesByWallet = async (req: Request, res: Response) => {
         gridAddress: gridAddress
       },
       allTokens: balancesData?.tokens || [],
-      native: (balancesData as any)?.native || null
+      native: null
     };
 
     // Find USDC token in the tokens array
     if (balancesData?.tokens) {
       const usdcToken = balancesData.tokens.find((token: any) => 
-        token.mint === '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
+        token.token_address === '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
       );
       
       if (usdcToken) {
         processedBalances.usdc = {
-          balance: (usdcToken as any).balance || '0',
-          formattedBalance: (usdcToken as any).formattedBalance || '0',
-          decimals: (usdcToken as any).decimals || 6,
-          mint: (usdcToken as any).mint,
-          symbol: (usdcToken as any).symbol || 'USDC',
-          uiAmount: parseFloat((usdcToken as any).formattedBalance || '0')
+          balance: usdcToken.amount?.toString() || '0',
+          formattedBalance: usdcToken.amount_decimal?.toString() || '0',
+          decimals: usdcToken.decimals || 6,
+          mint: usdcToken.token_address,
+          symbol: usdcToken.symbol || 'USDC',
+          uiAmount: parseFloat(usdcToken.amount_decimal?.toString() || '0')
         };
-        processedBalances.summary.hasUsdc = parseFloat((usdcToken as any).formattedBalance || '0') > 0;
+        processedBalances.summary.hasUsdc = parseFloat(usdcToken.amount_decimal?.toString() || '0') > 0;
       }
     }
 
@@ -1620,11 +1620,12 @@ export const debugUserBalances = async (req: Request, res: Response) => {
       success: balancesResponse.success,
       hasData: !!balancesData,
       tokenCount: balancesData?.tokens?.length || 0,
-      nativeBalance: (balancesData as any)?.native?.formattedBalance || '0',
+      nativeBalance: (balancesData as any)?.sol?.toString() || '0',
+      lamports: (balancesData as any)?.lamports?.toString() || '0',
       tokens: balancesData?.tokens?.map((token: any) => ({
-        mint: token.mint,
+        token_address: token.token_address,
         symbol: token.symbol,
-        balance: token.formattedBalance
+        amount_decimal: token.amount_decimal
       })) || []
     });
 
