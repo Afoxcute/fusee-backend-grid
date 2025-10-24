@@ -1138,8 +1138,13 @@ export const completeGridAccount = async (req: Request, res: Response) => {
           Logger.info(`Created new user in database: ${email} with wallet: ${walletAddress} and Grid address: ${user.gridAddress}`);
         }
 
+        // Generate JWT token for page refresh functionality
+        const token = generateToken(user.id);
+
         // Return user and Grid account details in the simplified format
         return res.status(201).json({ 
+          message: existingUser ? 'Grid account completed successfully for existing user' : 'User account created and Grid account completed successfully',
+          token,
           user: {
             id: user.id,
             email: user.email,
@@ -1156,8 +1161,7 @@ export const completeGridAccount = async (req: Request, res: Response) => {
             gridStatus: user.gridStatus,
             authResult: user.authResult,
             sessionSecrets: user.sessionSecrets,
-          },
-          message: existingUser ? 'Grid account completed successfully for existing user' : 'User account created and Grid account completed successfully'
+          }
         });
       } catch (dbError) {
         Logger.error('Database error during user creation/update:', dbError);

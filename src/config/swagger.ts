@@ -354,64 +354,21 @@ const options: swaggerJsdoc.Options = {
         },
         GridAccountCompleteResponse: {
           type: 'object',
-          required: ['user', 'gridAccount'],
+          required: ['message', 'token', 'user'],
           properties: {
+            message: {
+              type: 'string',
+              description: 'Success message',
+              example: 'User account created and Grid account completed successfully'
+            },
+            token: {
+              type: 'string',
+              description: 'JWT authentication token for page refresh functionality',
+              example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+            },
             user: {
               $ref: '#/components/schemas/User',
-            },
-            gridAccount: {
-              type: 'object',
-              required: ['address', 'status', 'policies'],
-              properties: {
-                address: {
-                  type: 'string',
-                  description: 'Grid account address',
-                  example: '33atfECaKPr97XLin7WbvCjLKgetZXPpfGJprgWAYE7j',
-                },
-                status: {
-                  type: 'string',
-                  description: 'Grid account status',
-                  example: 'success',
-                },
-                policies: {
-                  type: 'object',
-                  description: 'Grid account policies',
-                  properties: {
-                    signers: {
-                      type: 'array',
-                      items: {
-                        type: 'object',
-                        properties: {
-                          address: {
-                            type: 'string',
-                            description: 'Signer address',
-                          },
-                          role: {
-                            type: 'string',
-                            description: 'Signer role',
-                          },
-                          permissions: {
-                            type: 'array',
-                            items: {
-                              type: 'string',
-                            },
-                            description: 'Signer permissions',
-                          },
-                        },
-                      },
-                    },
-                    threshold: {
-                      type: 'integer',
-                      description: 'Signature threshold',
-                    },
-                    time_lock: {
-                      type: 'integer',
-                      description: 'Time lock in seconds',
-                    },
-                  },
-                },
-              },
-            },
+            }
           },
         },
         ErrorResponse: {
