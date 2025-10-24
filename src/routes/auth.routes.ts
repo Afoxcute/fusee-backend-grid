@@ -109,13 +109,13 @@ router.post('/login', login);
  *       1. User provides their email address
  *       2. System validates the user exists and is active
  *       3. Grid system sends OTP code to user's email
- *       4. Returns pending key for completing authentication
+ *       4. Returns success message with instructions
  *       
  *       **Security Features:**
  *       - Email validation
  *       - Active user verification
  *       - OTP code sent via email
- *       - Pending session with expiration
+ *       - Direct authentication flow
  *     tags: [Authentication]
  *     requestBody:
  *       required: true
@@ -135,33 +135,28 @@ router.post('/login', login);
  *           application/json:
  *             schema:
  *               type: object
- *               required: ['message', 'pendingKey', 'maskedKey', 'expiresAt']
+ *               required: ['message', 'email', 'instructions']
  *               properties:
  *                 message:
  *                   type: 'string'
  *                   description: 'Success message'
- *                   example: 'OTP sent to your email. Please check your inbox.'
- *                 pendingKey:
+ *                   example: 'Grid authentication initiated successfully'
+ *                 email:
  *                   type: 'string'
- *                   description: 'Pending session key for completing login'
- *                   example: 'abc123...xyz789'
- *                 maskedKey:
+ *                   format: 'email'
+ *                   description: 'User email address'
+ *                   example: 'john.doe@example.com'
+ *                 instructions:
  *                   type: 'string'
- *                   description: 'Masked version of pending key for display'
- *                   example: 'abc123...z789'
- *                 expiresAt:
- *                   type: 'string'
- *                   format: 'date-time'
- *                   description: 'Expiration time for the pending session'
- *                   example: '2023-01-01T01:00:00.000Z'
+ *                   description: 'Instructions for completing authentication'
+ *                   example: 'Check your email for the OTP code and use it with the complete login endpoint'
  *             examples:
  *               success:
  *                 summary: Successful initiation
  *                 value:
- *                   message: "OTP sent to your email. Please check your inbox."
- *                   pendingKey: "abc123...xyz789"
- *                   maskedKey: "abc123...z789"
- *                   expiresAt: "2023-01-01T01:00:00.000Z"
+ *                   message: "Grid authentication initiated successfully"
+ *                   email: "john.doe@example.com"
+ *                   instructions: "Check your email for the OTP code and use it with the complete login endpoint"
  *       401:
  *         description: Authentication failed
  *         content:
@@ -205,13 +200,13 @@ router.post('/login/initiate', validateRequest(gridLoginSchema), initiateLogin);
  *       1. User provides their email address
  *       2. System validates the user exists and is active
  *       3. Grid SDK initAuth method is called
- *       4. Returns pending key for completing authentication
+ *       4. Returns success message with instructions
  *       
  *       **Security Features:**
  *       - Email validation
  *       - Active user verification
  *       - Grid SDK initAuth integration
- *       - Pending session with expiration
+ *       - Direct authentication flow
  *       - Enhanced security through Grid SDK
  *     tags: [Authentication, Grid SDK]
  *     requestBody:
@@ -232,46 +227,28 @@ router.post('/login/initiate', validateRequest(gridLoginSchema), initiateLogin);
  *           application/json:
  *             schema:
  *               type: object
- *               required: ['message', 'pendingKey', 'maskedKey', 'expiresAt', 'authData']
+ *               required: ['message', 'email', 'instructions']
  *               properties:
  *                 message:
  *                   type: 'string'
  *                   description: 'Success message'
- *                   example: 'Grid authentication initialized successfully'
- *                 pendingKey:
+ *                   example: 'Grid authentication initiated successfully'
+ *                 email:
  *                   type: 'string'
- *                   description: 'Pending session key for completing authentication'
- *                   example: 'abc123...xyz789'
- *                 maskedKey:
+ *                   format: 'email'
+ *                   description: 'User email address'
+ *                   example: 'john.doe@example.com'
+ *                 instructions:
  *                   type: 'string'
- *                   description: 'Masked version of pending key for display'
- *                   example: 'abc123...z789'
- *                 expiresAt:
- *                   type: 'string'
- *                   format: 'date-time'
- *                   description: 'Expiration time for the pending session'
- *                   example: '2023-01-01T01:00:00.000Z'
- *                 authData:
- *                   type: 'object'
- *                   description: 'Grid SDK authentication data'
- *                   properties:
- *                     success:
- *                       type: 'boolean'
- *                       example: true
- *                     data:
- *                       type: 'object'
- *                       description: 'Grid SDK response data'
+ *                   description: 'Instructions for completing authentication'
+ *                   example: 'Check your email for the OTP code and use it with the complete authentication endpoint'
  *             examples:
  *               success:
  *                 summary: Successful Grid SDK initialization
  *                 value:
- *                   message: "Grid authentication initialized successfully"
- *                   pendingKey: "abc123...xyz789"
- *                   maskedKey: "abc123...z789"
- *                   expiresAt: "2023-01-01T01:00:00.000Z"
- *                   authData:
- *                     success: true
- *                     data: {}
+ *                   message: "Grid authentication initiated successfully"
+ *                   email: "john.doe@example.com"
+ *                   instructions: "Check your email for the OTP code and use it with the complete authentication endpoint"
  *       401:
  *         description: Authentication failed
  *         content:
@@ -334,7 +311,7 @@ router.post('/grid/init', validateRequest(gridLoginSchema), initGridAuth);
  *             validCompletion:
  *               summary: Valid Grid SDK completion
  *               value:
- *                 pendingKey: "abc123...xyz789"
+ *                 email: "john.doe@example.com"
  *                 otpCode: "123456"
  *     responses:
  *       200:
@@ -451,7 +428,7 @@ router.post('/grid/complete', validateRequest(completeLoginSchema), completeGrid
  *             validCompletion:
  *               summary: Valid completion request
  *               value:
- *                 pendingKey: "abc123...xyz789"
+ *                 email: "john.doe@example.com"
  *                 otpCode: "123456"
  *     responses:
  *       200:

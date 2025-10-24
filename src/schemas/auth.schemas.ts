@@ -1,8 +1,11 @@
 import { z } from 'zod';
 
 export const completeLoginSchema = z.object({
-  pendingKey: z.string(),
-  otpCode: z.string(),
+  email: z
+    .string()
+    .email('Please provide a valid email address')
+    .min(1, 'Email is required'),
+  otpCode: z.string().regex(/^[0-9]{6}$/, 'OTP code must be exactly 6 digits'),
 });
 
 export type CompleteLoginInput = z.infer<typeof completeLoginSchema>;

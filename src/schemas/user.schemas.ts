@@ -113,10 +113,34 @@ export const initiateGridAccountSchema = z.object({
     .or(z.literal('')),
 });
 
-// Grid account completion schema
+// Grid account completion schema (simplified - no pending key)
 export const completeGridAccountSchema = z.object({
-  pendingKey: z.string().uuid('Please provide a valid pending key'),
+  email: z
+    .string()
+    .email('Please provide a valid email address')
+    .min(1, 'Email is required'),
   otpCode: z.string().regex(/^[0-9]{6}$/, 'OTP code must be exactly 6 digits'),
+  firstName: z
+    .string()
+    .min(1, 'First name is required')
+    .max(50, 'First name must be less than 50 characters')
+    .regex(/^[a-zA-Z\s'-]+$/, 'First name can only contain letters, spaces, hyphens, and apostrophes'),
+  lastName: z
+    .string()
+    .min(1, 'Last name is required')
+    .max(50, 'Last name must be less than 50 characters')
+    .regex(/^[a-zA-Z\s'-]+$/, 'Last name can only contain letters, spaces, hyphens, and apostrophes'),
+  middleName: z
+    .string()
+    .max(50, 'Middle name must be less than 50 characters')
+    .regex(/^[a-zA-Z\s'-]*$/, 'Middle name can only contain letters, spaces, hyphens, and apostrophes')
+    .optional()
+    .or(z.literal('')),
+  phoneNumber: z
+    .string()
+    .regex(phoneRegex, 'Please provide a valid phone number (e.g., +1234567890, +2348101872122, (123) 456-7890)')
+    .optional()
+    .or(z.literal('')),
 });
 
 // User login schema

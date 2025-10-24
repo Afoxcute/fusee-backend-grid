@@ -14,7 +14,8 @@ CREATE TABLE "users" (
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "gridAddress" TEXT,
     "gridStatus" TEXT,
-    "gridPolicies" JSONB,
+    "authResult" JSONB,
+    "sessionSecrets" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -23,12 +24,3 @@ CREATE TABLE "users" (
 
 -- CreateIndex
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
-
--- CreateIndex
-CREATE UNIQUE INDEX "users_middleName_key" ON "users"("middleName");
-
--- CreateIndex
-CREATE UNIQUE INDEX "users_phoneNumber_key" ON "users"("phoneNumber");
-
--- CreateIndex
-CREATE UNIQUE INDEX "users_walletAddress_key" ON "users"("walletAddress");

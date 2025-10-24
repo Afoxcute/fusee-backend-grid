@@ -15,16 +15,19 @@ model User {
   email       String   @unique
   firstName   String
   lastName    String
-  middleName  String?  @unique
-  phoneNumber String?  @unique
-  walletAddress String? @unique
+  middleName  String?
+  phoneNumber String?
+  walletAddress String?
   role        UserRole @default(USER)
   isActive    Boolean  @default(true)
   
   // Grid Account Data
   gridAddress String?  // The Grid account address
   gridStatus  String?  // Grid account status (e.g., "success")
-  gridPolicies Json?   // Grid account policies as JSON
+  
+  // Grid Authentication Data
+  authResult  Json?    // Complete auth result from Grid SDK
+  sessionSecrets Json? // Session secrets from Grid SDK
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

@@ -228,39 +228,61 @@ const options: swaggerJsdoc.Options = {
         },
         CompleteGridAccountRequest: {
           type: 'object',
-          required: ['pendingKey', 'otpCode'],
+          required: ['email', 'otpCode', 'firstName', 'lastName'],
           properties: {
-            pendingKey: {
+            email: {
               type: 'string',
-              description: 'Pending session key from initiate response',
-              example: 'abc123...xyz789',
+              format: 'email',
+              description: 'User email address',
+              example: 'john.doe@example.com',
             },
             otpCode: {
               type: 'string',
-              description: 'OTP code received via email',
+              pattern: '^[0-9]{6}$',
+              description: 'OTP code received via email (6 digits)',
               example: '123456',
+            },
+            firstName: {
+              type: 'string',
+              description: 'User first name',
+              example: 'John',
+            },
+            lastName: {
+              type: 'string',
+              description: 'User last name',
+              example: 'Doe',
+            },
+            middleName: {
+              type: 'string',
+              description: 'User middle name',
+              example: 'Michael',
+            },
+            phoneNumber: {
+              type: 'string',
+              description: 'User phone number',
+              example: '+1234567890',
             },
           },
         },
         GridAccountInitiateResponse: {
           type: 'object',
-          required: ['pendingKey', 'maskedKey', 'expiresAt'],
+          required: ['message', 'email', 'instructions'],
           properties: {
-            pendingKey: {
+            message: {
               type: 'string',
-              description: 'Pending session key for completing account creation',
-              example: 'abc123...xyz789',
+              description: 'Success message',
+              example: 'Account creation initiated successfully',
             },
-            maskedKey: {
+            email: {
               type: 'string',
-              description: 'Masked version of the pending key for display',
-              example: 'abc123...z789',
+              format: 'email',
+              description: 'User email address',
+              example: 'john.doe@example.com',
             },
-            expiresAt: {
+            instructions: {
               type: 'string',
-              format: 'date-time',
-              description: 'Expiration time for the pending session',
-              example: '2023-01-01T01:00:00.000Z',
+              description: 'Instructions for completing account creation',
+              example: 'Check your email for the OTP code and use it with the complete endpoint',
             },
           },
         },
@@ -599,12 +621,13 @@ const options: swaggerJsdoc.Options = {
         },
         CompleteLoginRequest: {
           type: 'object',
-          required: ['pendingKey', 'otpCode'],
+          required: ['email', 'otpCode'],
           properties: {
-            pendingKey: {
+            email: {
               type: 'string',
-              description: 'Pending session key from login initiation',
-              example: 'abc123...xyz789',
+              format: 'email',
+              description: 'User email address',
+              example: 'john.doe@example.com',
             },
             otpCode: {
               type: 'string',
@@ -667,6 +690,46 @@ const options: swaggerJsdoc.Options = {
                   type: 'string',
                   description: 'Grid account status',
                   example: 'success',
+                },
+              },
+            },
+            authData: {
+              type: 'object',
+              description: 'Grid authentication data',
+              properties: {
+                success: {
+                  type: 'boolean',
+                  description: 'Authentication success status',
+                  example: true,
+                },
+                data: {
+                  type: 'object',
+                  description: 'Grid authentication response data',
+                },
+              },
+            },
+            sessionSecrets: {
+              type: 'array',
+              description: 'Grid session secrets for transaction signing',
+              items: {
+                type: 'object',
+                properties: {
+                  publicKey: {
+                    type: 'string',
+                    description: 'Public key',
+                  },
+                  privateKey: {
+                    type: 'string',
+                    description: 'Private key',
+                  },
+                  provider: {
+                    type: 'string',
+                    description: 'Key provider',
+                  },
+                  tag: {
+                    type: 'string',
+                    description: 'Key tag',
+                  },
                 },
               },
             },

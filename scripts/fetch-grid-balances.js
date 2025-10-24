@@ -51,7 +51,8 @@ var gridClient = new grid_1.GridClient({
 // Token mint addresses for reference
 var TOKEN_MINTS = {
     SOL: 'So11111111111111111111111111111111111111112', // Native SOL
-    USDC_MAINNET: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    USDC_MAINNET: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+',
     USDC_DEVNET: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
 };
 // Helper function to format balance
