@@ -228,7 +228,7 @@ const options: swaggerJsdoc.Options = {
         },
         CompleteGridAccountRequest: {
           type: 'object',
-          required: ['email', 'otpCode', 'firstName', 'lastName'],
+          required: ['email', 'otpCode'],
           properties: {
             email: {
               type: 'string',
@@ -241,26 +241,6 @@ const options: swaggerJsdoc.Options = {
               pattern: '^[0-9]{6}$',
               description: 'OTP code received via email (6 digits)',
               example: '123456',
-            },
-            firstName: {
-              type: 'string',
-              description: 'User first name',
-              example: 'John',
-            },
-            lastName: {
-              type: 'string',
-              description: 'User last name',
-              example: 'Doe',
-            },
-            middleName: {
-              type: 'string',
-              description: 'User middle name',
-              example: 'Michael',
-            },
-            phoneNumber: {
-              type: 'string',
-              description: 'User phone number',
-              example: '+1234567890',
             },
           },
         },

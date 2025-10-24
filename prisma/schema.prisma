@@ -32,7 +32,133 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Relations
+  transactions YieldTransaction[]
+  transfers    Transfer[]
+
   @@map("users")
+}
+
+model YieldTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Transaction Details
+  type        YieldTransactionType
+  status      YieldTransactionStatus @default(PENDING)
+  
+  // Transaction Data
+  owner       String   // Grid address of the user
+  feePayer    String   // Fee payer address (usually same as owner)
+  mintAddress String?  // Token mint address (for deposits/withdrawals)
+  
+  // Amounts
+  regularAmount    Float?   // Boosted (LUSD) amount
+  protectedAmount  Float?   // Protected (PUSD) amount
+  amount           Float?   // Single amount (for withdrawals)
+  
+  // Referral Data
+  referrer         String?  // Referrer wallet address
+  
+  // Withdrawal Data
+  pendingWithdrawalId Int?  // For regular withdrawal completion
+  
+  // Transaction Data
+  serializedTransaction String? // Base64 encoded transaction
+  transactionSignature  String? // Transaction signature after execution
+  priorityFee           String? // Priority fee in lamports
+  
+  // Metadata
+  luloResponse      Json?   // Raw response from Lulo API
+  errorMessage      String? // Error message if transaction failed
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("yield_transactions")
+}
+
+enum YieldTransactionType {
+  INITIALIZE_REFERRER
+  DEPOSIT
+  WITHDRAW_PROTECTED
+  INITIATE_REGULAR_WITHDRAW
+  COMPLETE_REGULAR_WITHDRAWAL
+}
+
+enum YieldTransactionStatus {
+  PENDING
+  GENERATED
+  SIGNED
+  SUBMITTED
+  CONFIRMED
+  FAILED
+  CANCELLED
+}
+
+model Transfer {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Transfer Details
+  type        TransferType
+  status      TransferStatus @default(PENDING)
+  
+  // Transfer Data
+  fromAddress String   // Sender address (Grid address)
+  toAddress   String   // Recipient address (Grid address)
+  tokenType   TokenType // SOL or USDC
+  
+  // Amounts
+  amount      Float    // Transfer amount
+  decimals    Int      // Token decimals
+  
+  // Token Data
+  mintAddress String?  // Token mint address (for USDC)
+  
+  // Transaction Data
+  serializedTransaction String? // Base64 encoded transaction
+  transactionSignature  String? // Transaction signature after execution
+  recentBlockhash      String? // Recent blockhash used
+  
+  // Fee Data
+  feeAmount   Float?   // Transaction fee amount
+  priorityFee String?  // Priority fee in lamports
+  
+  // Metadata
+  gridResponse    Json?   // Raw response from Grid SDK
+  blockchainResponse Json? // Raw response from blockchain
+  errorMessage    String? // Error message if transfer failed
+  
+  // Memo
+  memo        String?  // Optional memo/note
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("transfers")
+}
+
+enum TransferType {
+  SOL_TRANSFER
+  USDC_TRANSFER
+}
+
+enum TransferStatus {
+  PENDING
+  PREPARED
+  SIGNED
+  SUBMITTED
+  CONFIRMED
+  FAILED
+  CANCELLED
+}
+
+enum TokenType {
+  SOL
+  USDC
 }
 
 enum UserRole {

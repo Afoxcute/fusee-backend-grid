@@ -15,6 +15,18 @@ import {
   sendSolTransactionSchema,
   sendUsdcTransactionSchema,
 } from '../schemas/transaction.schemas';
+import {
+  initializeReferrerSchema,
+  depositSchema,
+  withdrawProtectedSchema,
+  initiateRegularWithdrawSchema,
+  completeRegularWithdrawalSchema,
+  getAccountSchema,
+  getPendingWithdrawalsSchema,
+  getPoolsSchema,
+  getRatesSchema,
+  getReferrerSchema,
+} from '../schemas/yield.schemas';
 import { completeLoginSchema } from '../schemas/auth.schemas';
 
 const router = Router();
@@ -638,10 +650,6 @@ router.post('/grid/initiate', validateRequest(initiateGridAccountSchema), userCo
  *               value:
  *                 email: "john.doe@example.com"
  *                 otpCode: "123456"
- *                 firstName: "John"
- *                 lastName: "Doe"
- *                 middleName: "Michael"
- *                 phoneNumber: "+1234567890"
  *     responses:
  *       201:
  *         description: Grid account created successfully.
@@ -2317,5 +2325,765 @@ router.get('/email/:email/transfers', userController.getUserTransfers);
  *               $ref: '#/components/schemas/Error'
  */
 router.get('/email/:email/debug-transfers', userController.debugUserTransfers);
+
+// ===========================================
+// YIELD INVESTMENT ROUTES (LULO INTEGRATION)
+// ===========================================
+
+/**
+ * @swagger
+ * /api/users/yield/initialize-referrer:
+ *   post:
+ *     summary: Initialize referrer account for yield investment
+ *     description: |
+ *       Generates a transaction to create a referrer account for yield investment.
+ *       This allows users to earn referral fees when others use their referrer code.
+ *       
+ *       **Requirements:**
+ *       - User must have a Grid account
+ *       - Lulo API key must be configured
+ *     tags: [Users, Yield Investment]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *                 example: "john.doe@example.com"
+ *               priorityFee:
+ *                 type: string
+ *                 description: Priority fee in lamports (optional)
+ *                 example: "50000"
+ *     responses:
+ *       200:
+ *         description: Referrer initialization transaction generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 user:
+ *                   type: object
+ *                 transaction:
+ *                   type: object
+ *                   properties:
+ *                     serializedTransaction:
+ *                       type: string
+ *                     owner:
+ *                       type: string
+ *                     feePayer:
+ *                       type: string
+ *                     priorityFee:
+ *                       type: string
+ *                 instructions:
+ *                   type: string
+ *       400:
+ *         description: User does not have a Grid account
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/yield/initialize-referrer', validateRequest(initializeReferrerSchema), userController.initializeReferrer);
+
+/**
+ * @swagger
+ * /api/users/yield/deposit:
+ *   post:
+ *     summary: Deposit to yield pool
+ *     description: |
+ *       Generates a transaction to deposit protected (PUSD) and/or boosted (LUSD) tokens to the yield pool.
+ *       Users can deposit both types simultaneously or choose one.
+ *       
+ *       **Token Types:**
+ *       - **Protected (PUSD)**: Lower risk, lower yield (~3.4% APY)
+ *       - **Boosted (LUSD)**: Higher risk, higher yield (~5.4% APY)
+ *       
+ *       **Requirements:**
+ *       - User must have a Grid account
+ *       - At least one amount (regular or protected) must be provided
+ *       - Only USDC is supported
+ *     tags: [Users, Yield Investment]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - mintAddress
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *                 example: "john.doe@example.com"
+ *               mintAddress:
+ *                 type: string
+ *                 description: Token mint address (only USDC supported)
+ *                 example: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+ *               regularAmount:
+ *                 type: number
+ *                 minimum: 0
+ *                 description: Regular (boosted) amount to deposit
+ *                 example: 100
+ *               protectedAmount:
+ *                 type: number
+ *                 minimum: 0
+ *                 description: Protected amount to deposit
+ *                 example: 100
+ *               referrer:
+ *                 type: string
+ *                 description: Optional referrer wallet address
+ *                 example: "6pZiqTT81nKLxMvQay7P6TrRx9NdWG5zbakaZdQoWoUb"
+ *               priorityFee:
+ *                 type: string
+ *                 description: Priority fee in lamports (optional)
+ *                 example: "50000"
+ *     responses:
+ *       200:
+ *         description: Yield deposit transaction generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 user:
+ *                   type: object
+ *                 deposit:
+ *                   type: object
+ *                   properties:
+ *                     serializedTransaction:
+ *                       type: string
+ *                     owner:
+ *                       type: string
+ *                     feePayer:
+ *                       type: string
+ *                     mintAddress:
+ *                       type: string
+ *                     regularAmount:
+ *                       type: number
+ *                     protectedAmount:
+ *                       type: number
+ *                     referrer:
+ *                       type: string
+ *                     priorityFee:
+ *                       type: string
+ *                 instructions:
+ *                   type: string
+ *       400:
+ *         description: Bad request - Missing amounts or Grid account
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/yield/deposit', validateRequest(depositSchema), userController.depositToYield);
+
+/**
+ * @swagger
+ * /api/users/yield/withdraw-protected:
+ *   post:
+ *     summary: Withdraw protected funds (PUSD)
+ *     description: |
+ *       Generates a transaction to withdraw protected (PUSD) funds from the yield pool.
+ *       Protected withdrawals are immediate and have no cooldown period.
+ *       
+ *       **Requirements:**
+ *       - User must have a Grid account
+ *       - User must have protected funds deposited
+ *     tags: [Users, Yield Investment]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - mintAddress
+ *               - amount
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *                 example: "john.doe@example.com"
+ *               mintAddress:
+ *                 type: string
+ *                 description: Token mint address (only USDC supported)
+ *                 example: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+ *               amount:
+ *                 type: number
+ *                 minimum: 0.01
+ *                 description: Amount to withdraw
+ *                 example: 42
+ *               priorityFee:
+ *                 type: string
+ *                 description: Priority fee in lamports (optional)
+ *                 example: "50000"
+ *     responses:
+ *       200:
+ *         description: Protected withdrawal transaction generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 user:
+ *                   type: object
+ *                 withdrawal:
+ *                   type: object
+ *                   properties:
+ *                     serializedTransaction:
+ *                       type: string
+ *                     owner:
+ *                       type: string
+ *                     feePayer:
+ *                       type: string
+ *                     mintAddress:
+ *                       type: string
+ *                     amount:
+ *                       type: number
+ *                     priorityFee:
+ *                       type: string
+ *                     type:
+ *                       type: string
+ *                       example: "protected"
+ *                 instructions:
+ *                   type: string
+ *       400:
+ *         description: User does not have a Grid account
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/yield/withdraw-protected', validateRequest(withdrawProtectedSchema), userController.withdrawProtected);
+
+/**
+ * @swagger
+ * /api/users/yield/initiate-regular-withdraw:
+ *   post:
+ *     summary: Initiate regular withdrawal (LUSD)
+ *     description: |
+ *       Generates a transaction to initiate a withdrawal of boosted (LUSD) funds from the yield pool.
+ *       Regular withdrawals have a cooldown period and require a second transaction to complete.
+ *       
+ *       **Withdrawal Process:**
+ *       1. Initiate withdrawal (this endpoint)
+ *       2. Wait for cooldown period
+ *       3. Complete withdrawal using complete-regular-withdrawal endpoint
+ *       
+ *       **Requirements:**
+ *       - User must have a Grid account
+ *       - User must have boosted funds deposited
+ *     tags: [Users, Yield Investment]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - mintAddress
+ *               - amount
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *                 example: "john.doe@example.com"
+ *               mintAddress:
+ *                 type: string
+ *                 description: Token mint address (only USDC supported)
+ *                 example: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+ *               amount:
+ *                 type: number
+ *                 minimum: 0.01
+ *                 description: Amount to withdraw
+ *                 example: 42
+ *               priorityFee:
+ *                 type: string
+ *                 description: Priority fee in lamports (optional)
+ *                 example: "50000"
+ *     responses:
+ *       200:
+ *         description: Regular withdrawal initiation transaction generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 user:
+ *                   type: object
+ *                 withdrawal:
+ *                   type: object
+ *                   properties:
+ *                     serializedTransaction:
+ *                       type: string
+ *                     owner:
+ *                       type: string
+ *                     feePayer:
+ *                       type: string
+ *                     mintAddress:
+ *                       type: string
+ *                     amount:
+ *                       type: number
+ *                     priorityFee:
+ *                       type: string
+ *                     type:
+ *                       type: string
+ *                       example: "regular"
+ *                     status:
+ *                       type: string
+ *                       example: "initiated"
+ *                 instructions:
+ *                   type: string
+ *       400:
+ *         description: User does not have a Grid account
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/yield/initiate-regular-withdraw', validateRequest(initiateRegularWithdrawSchema), userController.initiateRegularWithdraw);
+
+/**
+ * @swagger
+ * /api/users/yield/complete-regular-withdrawal:
+ *   post:
+ *     summary: Complete regular withdrawal (LUSD)
+ *     description: |
+ *       Generates a transaction to complete a regular withdrawal of boosted (LUSD) funds.
+ *       This is the second step in the regular withdrawal process, after the cooldown period.
+ *       
+ *       **Requirements:**
+ *       - User must have a Grid account
+ *       - User must have a pending withdrawal with valid withdrawal ID
+ *     tags: [Users, Yield Investment]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - pendingWithdrawalId
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *                 example: "john.doe@example.com"
+ *               pendingWithdrawalId:
+ *                 type: integer
+ *                 minimum: 1
+ *                 description: Pending withdrawal ID from initiate withdrawal
+ *                 example: 1
+ *               priorityFee:
+ *                 type: string
+ *                 description: Priority fee in lamports (optional)
+ *                 example: "50000"
+ *     responses:
+ *       200:
+ *         description: Regular withdrawal completion transaction generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 user:
+ *                   type: object
+ *                 withdrawal:
+ *                   type: object
+ *                   properties:
+ *                     serializedTransaction:
+ *                       type: string
+ *                     owner:
+ *                       type: string
+ *                     feePayer:
+ *                       type: string
+ *                     pendingWithdrawalId:
+ *                       type: integer
+ *                     priorityFee:
+ *                       type: string
+ *                     type:
+ *                       type: string
+ *                       example: "regular"
+ *                     status:
+ *                       type: string
+ *                       example: "completing"
+ *                 instructions:
+ *                   type: string
+ *       400:
+ *         description: User does not have a Grid account
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/yield/complete-regular-withdrawal', validateRequest(completeRegularWithdrawalSchema), userController.completeRegularWithdrawal);
+
+/**
+ * @swagger
+ * /api/users/email/{email}/yield/account:
+ *   get:
+ *     summary: Get yield account data
+ *     description: |
+ *       Retrieves account data for a user's yield investment account from Lulo.
+ *       This includes balances, positions, and account status.
+ *       
+ *       **Requirements:**
+ *       - User must have a Grid account
+ *     tags: [Users, Yield Investment]
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: email
+ *         description: User email address
+ *         example: "john.doe@example.com"
+ *     responses:
+ *       200:
+ *         description: Yield account data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                 accountData:
+ *                   type: object
+ *                   description: Account data from Lulo API
+ *                 source:
+ *                   type: string
+ *                   example: "lulo-api"
+ *       400:
+ *         description: User does not have a Grid account
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/email/:email/yield/account', userController.getYieldAccount);
+
+/**
+ * @swagger
+ * /api/users/email/{email}/yield/pending-withdrawals:
+ *   get:
+ *     summary: Get pending withdrawals
+ *     description: |
+ *       Retrieves list of pending withdrawals for a user's yield investment account.
+ *       This includes regular withdrawals that are in cooldown period.
+ *       
+ *       **Requirements:**
+ *       - User must have a Grid account
+ *     tags: [Users, Yield Investment]
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: email
+ *         description: User email address
+ *         example: "john.doe@example.com"
+ *     responses:
+ *       200:
+ *         description: Pending withdrawals retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                 pendingWithdrawals:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       owner:
+ *                         type: string
+ *                       withdrawalId:
+ *                         type: integer
+ *                       nativeAmount:
+ *                         type: string
+ *                       createdTimestamp:
+ *                         type: integer
+ *                       cooldownSeconds:
+ *                         type: string
+ *                       mintAddress:
+ *                         type: string
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     totalPending:
+ *                       type: integer
+ *                     source:
+ *                       type: string
+ *                       example: "lulo-api"
+ *       400:
+ *         description: User does not have a Grid account
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/email/:email/yield/pending-withdrawals', userController.getPendingWithdrawals);
+
+/**
+ * @swagger
+ * /api/users/yield/pools:
+ *   get:
+ *     summary: Get pool information
+ *     description: |
+ *       Retrieves information about the yield pools including APY, liquidity, and capacity.
+ *       Optionally includes user-specific data if email is provided.
+ *       
+ *       **Pool Types:**
+ *       - **Regular Pool**: Higher yield (~5.4% APY), higher risk
+ *       - **Protected Pool**: Lower yield (~3.4% APY), lower risk
+ *     tags: [Users, Yield Investment]
+ *     parameters:
+ *       - in: query
+ *         name: email
+ *         schema:
+ *           type: string
+ *           format: email
+ *         description: User email address for user-specific data (optional)
+ *         example: "john.doe@example.com"
+ *     responses:
+ *       200:
+ *         description: Pool information retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 pools:
+ *                   type: object
+ *                   properties:
+ *                     regular:
+ *                       type: object
+ *                       properties:
+ *                         type:
+ *                           type: string
+ *                         apy:
+ *                           type: number
+ *                         maxWithdrawalAmount:
+ *                           type: number
+ *                         price:
+ *                           type: number
+ *                     protected:
+ *                       type: object
+ *                       properties:
+ *                         type:
+ *                           type: string
+ *                         apy:
+ *                           type: number
+ *                         openCapacity:
+ *                           type: number
+ *                         price:
+ *                           type: number
+ *                     averagePoolRate:
+ *                       type: number
+ *                     totalLiquidity:
+ *                       type: number
+ *                     availableLiquidity:
+ *                       type: number
+ *                     regularLiquidityAmount:
+ *                       type: number
+ *                     protectedLiquidityAmount:
+ *                       type: number
+ *                     regularAvailableAmount:
+ *                       type: number
+ *                 source:
+ *                   type: string
+ *                   example: "lulo-api"
+ *                 userSpecific:
+ *                   type: boolean
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/yield/pools', userController.getPoolInfo);
+
+/**
+ * @swagger
+ * /api/users/yield/rates:
+ *   get:
+ *     summary: Get yield rates
+ *     description: |
+ *       Retrieves current yield rates for both regular and protected pools.
+ *       Includes historical rates (1HR, 24HR, 7DAY, 30DAY, 1YR).
+ *       Optionally includes user-specific data if email is provided.
+ *     tags: [Users, Yield Investment]
+ *     parameters:
+ *       - in: query
+ *         name: email
+ *         schema:
+ *           type: string
+ *           format: email
+ *         description: User email address for user-specific data (optional)
+ *         example: "john.doe@example.com"
+ *     responses:
+ *       200:
+ *         description: Yield rates retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 rates:
+ *                   type: object
+ *                   properties:
+ *                     regular:
+ *                       type: object
+ *                       properties:
+ *                         CURRENT:
+ *                           type: number
+ *                         "1HR":
+ *                           type: number
+ *                         "24HR":
+ *                           type: number
+ *                         "7DAY":
+ *                           type: number
+ *                         "30DAY":
+ *                           type: number
+ *                         "1YR":
+ *                           type: number
+ *                     protected:
+ *                       type: object
+ *                       properties:
+ *                         CURRENT:
+ *                           type: number
+ *                         "1HR":
+ *                           type: number
+ *                         "24HR":
+ *                           type: number
+ *                         "7DAY":
+ *                           type: number
+ *                         "30DAY":
+ *                           type: number
+ *                         "1YR":
+ *                           type: number
+ *                 source:
+ *                   type: string
+ *                   example: "lulo-api"
+ *                 userSpecific:
+ *                   type: boolean
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/yield/rates', userController.getYieldRates);
+
+/**
+ * @swagger
+ * /api/users/email/{email}/yield/referrer:
+ *   get:
+ *     summary: Get referrer information
+ *     description: |
+ *       Retrieves referrer information for a user including referral fees, number of referrals,
+ *       and referral code. This data is only available if the user has initialized a referrer account.
+ *       
+ *       **Requirements:**
+ *       - User must have a Grid account
+ *       - User must have initialized a referrer account
+ *     tags: [Users, Yield Investment]
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: email
+ *         description: User email address
+ *         example: "john.doe@example.com"
+ *     responses:
+ *       200:
+ *         description: Referrer information retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                 referrerData:
+ *                   type: object
+ *                   properties:
+ *                     owner:
+ *                       type: string
+ *                     luloAccount:
+ *                       type: string
+ *                     luloAccountExists:
+ *                       type: boolean
+ *                     referrerAccount:
+ *                       type: string
+ *                     referrerAccountExists:
+ *                       type: boolean
+ *                     referredAmount:
+ *                       type: number
+ *                     protectedReferredAmount:
+ *                       type: number
+ *                     regularReferredAmount:
+ *                       type: number
+ *                     referralFeeUnclaimed:
+ *                       type: number
+ *                     netReferralFeesUnclaimed:
+ *                       type: number
+ *                     totalClaimed:
+ *                       type: number
+ *                     referralFee:
+ *                       type: number
+ *                     claimFee:
+ *                       type: number
+ *                     numReferrals:
+ *                       type: integer
+ *                     code:
+ *                       type: string
+ *                 source:
+ *                   type: string
+ *                   example: "lulo-api"
+ *       400:
+ *         description: User does not have a Grid account
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/email/:email/yield/referrer', userController.getReferrerInfo);
+
+// Transaction History Routes
+router.get('/email/:email/yield/transactions', userController.getUserYieldTransactions);
+router.put('/yield/transactions/:transactionId/status', userController.updateYieldTransactionStatusEndpoint);
+
+// Transfer History Routes
+router.get('/email/:email/transfers', userController.getUserTransferHistory);
+router.put('/transfers/:transferId/status', userController.updateTransferStatusEndpoint);
 
 export default router;

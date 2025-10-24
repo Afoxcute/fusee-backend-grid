@@ -7,6 +7,7 @@ export interface AuthenticatedRequest extends Request {
   userId: string;
 }
 import gridClient from '../lib/squad';
+import luloService from '../services/lulo.service';
 // Pending key utilities removed - no longer needed
 import {
   CreateUserInput,
@@ -481,10 +482,28 @@ export const initiateGridAccount = async (req: Request, res: Response) => {
 
     Logger.info(`Grid account creation initiated for user ${email}`);
 
+    // Store user data temporarily for the complete step
+    // We'll store it in a simple in-memory cache with email as key
+    // In production, you might want to use Redis or database for this
+    const tempUserData = {
+      email,
+      firstName,
+      lastName,
+      middleName: middleName || '',
+      phoneNumber: phoneNumber || '',
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes expiry
+    };
+
+    // Store in temporary cache (in production, use Redis or database)
+    (global as any).tempUserData = (global as any).tempUserData || new Map();
+    (global as any).tempUserData.set(email, tempUserData);
+
     res.status(201).json({ 
       message: 'Account creation initiated successfully',
       email: email,
-      instructions: 'Check your email for the OTP code and use it with the complete endpoint'
+      instructions: 'Check your email for the OTP code and use it with the complete endpoint',
+      note: 'User data has been temporarily stored for account completion'
     });
   } catch (error) {
     Logger.error('Error initiating Grid account:', error);
@@ -673,13 +692,47 @@ export const checkGridAccountStatus = async (req: Request, res: Response) => {
 export const completeGridAccount = async (req: Request, res: Response) => {
   try {
     const validatedData = req.body as CompleteGridAccountInput;
-    const { email, otpCode, firstName, lastName, middleName, phoneNumber } = validatedData;
+    const { email, otpCode } = validatedData;
 
     if (!email || !otpCode) {
       return res.status(400).json({ 
         error: 'Email and OTP code are required' 
       });
     }
+
+    // Retrieve stored user data from the initiate step
+    const tempUserData = (global as any).tempUserData?.get(email);
+    
+    if (!tempUserData) {
+      return res.status(400).json({
+        error: 'No pending account creation found',
+        details: 'Please initiate account creation first using the /api/users/grid/initiate endpoint',
+        guidance: {
+          message: 'Account creation data not found or expired',
+          action: 'Start account creation process again',
+          endpoint: '/api/users/grid/initiate',
+          requiredFields: ['email', 'firstName', 'lastName', 'middleName', 'phoneNumber']
+        }
+      });
+    }
+
+    // Check if the temporary data has expired (15 minutes)
+    if (new Date() > tempUserData.expiresAt) {
+      // Clean up expired data
+      (global as any).tempUserData?.delete(email);
+      return res.status(400).json({
+        error: 'Account creation session expired',
+        details: 'The account creation session has expired. Please start the process again.',
+        guidance: {
+          message: 'Session expired after 15 minutes',
+          action: 'Restart account creation process',
+          endpoint: '/api/users/grid/initiate'
+        }
+      });
+    }
+
+    // Extract user data from stored temporary data
+    const { firstName, lastName, middleName, phoneNumber } = tempUserData;
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
@@ -820,6 +873,9 @@ export const completeGridAccount = async (req: Request, res: Response) => {
         });
 
         Logger.info(`Created user in database: ${email} with wallet: ${walletAddress} and Grid address: ${user.gridAddress}`);
+
+        // Clean up temporary user data
+        (global as any).tempUserData?.delete(email);
 
         // Return user and Grid account details in the simplified format
         return res.status(201).json({ 
@@ -2198,10 +2254,10 @@ export const prepareTransaction = async (req: Request, res: Response) => {
       });
     }
 
-    if (!gridData.authData?.authentication) {
+    if (!(gridData.authData as any)?.authentication) {
       Logger.error('Missing authentication data in gridData:', {
         authData: gridData.authData,
-        hasAuthentication: !!(gridData.authData?.authentication),
+        hasAuthentication: !!((gridData.authData as any)?.authentication),
         senderEmail: fromEmail,
         gridAddress: senderUser.gridAddress
       });
@@ -2210,7 +2266,7 @@ export const prepareTransaction = async (req: Request, res: Response) => {
         details: 'Authentication data not found in user data. Please re-authenticate.',
         debug: {
           authData: gridData.authData,
-          hasAuthentication: !!(gridData.authData?.authentication)
+          hasAuthentication: !!((gridData.authData as any)?.authentication)
         }
       });
     }
@@ -2555,7 +2611,7 @@ export const executeTransaction = async (req: Request, res: Response) => {
     
     const exactSignAndSendData = {
       sessionSecrets: gridData.sessionData,
-        session: gridData.authData?.authentication, // Auth token from authentication step
+        session: (gridData.authData as any)?.authentication, // Auth token from authentication step
       transactionPayload: {
         ...transactionPayload,
         kms_payloads: transactionPayload.kms_payloads || []
@@ -2571,7 +2627,7 @@ export const executeTransaction = async (req: Request, res: Response) => {
     console.log('├── sessionSecrets:');
     console.log(`│   └── ${JSON.stringify(gridData.sessionData, null, 4)}`);
     console.log('├── session (auth token):');
-    console.log(`│   └── ${JSON.stringify(gridData.authData?.authentication, null, 4)}`);
+    console.log(`│   └── ${JSON.stringify((gridData.authData as any)?.authentication, null, 4)}`);
     console.log('├── transactionPayload:');
     console.log(`│   ├── transaction: "${transactionPayload.transaction?.substring(0, 50)}..."`);
     console.log(`│   ├── transaction_signers: ${JSON.stringify(transactionPayload.transaction_signers)}`);
@@ -2584,7 +2640,7 @@ export const executeTransaction = async (req: Request, res: Response) => {
     console.log(`├── transaction base64 length: ${transactionPayload.transaction?.length || 0} chars`);
     console.log(`├── transaction_signers count: ${transactionPayload.transaction_signers?.length || 0}`);
     console.log(`├── kms_payloads count: ${(transactionPayload.kms_payloads || []).length}`);
-    console.log(`└── session (auth token) size: ${gridData.authData?.authentication ? JSON.stringify(gridData.authData.authentication).length : 0} chars`);
+    console.log(`└── session (auth token) size: ${(gridData.authData as any)?.authentication ? JSON.stringify((gridData.authData as any).authentication).length : 0} chars`);
     
     console.log('\n' + '='.repeat(80));
     console.log('🎯 CALLING: await gridClient.signAndSend(exactSignAndSendData)');
@@ -2609,7 +2665,7 @@ export const executeTransaction = async (req: Request, res: Response) => {
       });
     }
 
-    if (!gridData.authData?.authentication) {
+    if (!(gridData.authData as any)?.authentication) {
       Logger.error('Missing authentication data in gridData:', {
         authData: gridData.authData,
         accountData: gridData.accountData,
@@ -2636,7 +2692,7 @@ export const executeTransaction = async (req: Request, res: Response) => {
     try {
       executedTxResponse = await gridClient.signAndSend({
         sessionSecrets: gridData.sessionData, // From account creation step
-        session: gridData.authData.authentication, // Auth token from previous step (authResult.authentication)
+        session: (gridData.authData as any).authentication, // Auth token from previous step (authResult.authentication)
         transactionPayload: {
           ...transactionPayload,
           kms_payloads: transactionPayload.kms_payloads || []
@@ -2837,10 +2893,10 @@ export const sendTransaction = async (req: Request, res: Response) => {
       });
     }
 
-    if (!gridData.authData?.authentication) {
+    if (!(gridData.authData as any)?.authentication) {
       Logger.error('Missing authentication data in gridData:', {
         authData: gridData.authData,
-        hasAuthentication: !!(gridData.authData?.authentication),
+        hasAuthentication: !!((gridData.authData as any)?.authentication),
         senderEmail: fromEmail,
         gridAddress: senderUser.gridAddress
       });
@@ -2849,7 +2905,7 @@ export const sendTransaction = async (req: Request, res: Response) => {
         details: 'Authentication data not found in user data. Please re-authenticate.',
         debug: {
           authData: gridData.authData,
-          hasAuthentication: !!(gridData.authData?.authentication)
+          hasAuthentication: !!((gridData.authData as any)?.authentication)
         }
       });
     }
@@ -3038,7 +3094,7 @@ export const sendTransaction = async (req: Request, res: Response) => {
     
     const exactSignAndSendData = {
       sessionSecrets: gridData.sessionData,
-        session: gridData.authData?.authentication, // Auth token from authentication step
+        session: (gridData.authData as any)?.authentication, // Auth token from authentication step
       transactionPayload: {
         ...transactionPayload,
         kms_payloads: transactionPayload.kms_payloads || []
@@ -3054,7 +3110,7 @@ export const sendTransaction = async (req: Request, res: Response) => {
     console.log('├── sessionSecrets:');
     console.log(`│   └── ${JSON.stringify(gridData.sessionData, null, 4)}`);
     console.log('├── session (auth token):');
-    console.log(`│   └── ${JSON.stringify(gridData.authData?.authentication, null, 4)}`);
+    console.log(`│   └── ${JSON.stringify((gridData.authData as any)?.authentication, null, 4)}`);
     console.log('├── transactionPayload:');
     console.log(`│   ├── transaction: "${transactionPayload.transaction?.substring(0, 50)}..."`);
     console.log(`│   ├── transaction_signers: ${JSON.stringify(transactionPayload.transaction_signers)}`);
@@ -3067,7 +3123,7 @@ export const sendTransaction = async (req: Request, res: Response) => {
     console.log(`├── transaction base64 length: ${transactionPayload.transaction?.length || 0} chars`);
     console.log(`├── transaction_signers count: ${transactionPayload.transaction_signers?.length || 0}`);
     console.log(`├── kms_payloads count: ${(transactionPayload.kms_payloads || []).length}`);
-    console.log(`└── session (auth token) size: ${gridData.authData?.authentication ? JSON.stringify(gridData.authData.authentication).length : 0} chars`);
+    console.log(`└── session (auth token) size: ${(gridData.authData as any)?.authentication ? JSON.stringify((gridData.authData as any).authentication).length : 0} chars`);
     
     console.log('\n' + '='.repeat(80));
     console.log('🎯 CALLING: await gridClient.signAndSend(exactSignAndSendData) [SEND TRANSACTION]');
@@ -3080,7 +3136,7 @@ export const sendTransaction = async (req: Request, res: Response) => {
     console.log(`├── sessionData: ${JSON.stringify(gridData.sessionData, null, 2)}`);
     
     // Check if we have authentication data
-    if (!gridData.authData?.authentication) {
+    if (!(gridData.authData as any)?.authentication) {
       Logger.error('Missing authentication data in gridData [SEND TRANSACTION]:', {
         authData: gridData.authData,
         accountData: gridData.accountData,
@@ -3107,7 +3163,7 @@ export const sendTransaction = async (req: Request, res: Response) => {
     try {
       executedTxResponse = await gridClient.signAndSend({
         sessionSecrets: gridData.sessionData, // From account creation step
-        session: gridData.authData.authentication, // Auth token from previous step (authResult.authentication)
+        session: (gridData.authData as any).authentication, // Auth token from previous step (authResult.authentication)
         transactionPayload: {
           ...transactionPayload,
           kms_payloads: transactionPayload.kms_payloads || []
@@ -3180,10 +3236,37 @@ export const sendTransaction = async (req: Request, res: Response) => {
 
     Logger.info(`Transaction sent successfully: ${amount} ${tokenSymbol} from ${fromAddress} to ${toAddress}, signature: ${executedTx?.signature}`);
 
+    // Store transfer in database
+    const transferType = tokenMint === TOKEN_MINTS.SOL ? 'SOL_TRANSFER' : 'USDC_TRANSFER';
+    const tokenType = tokenMint === TOKEN_MINTS.SOL ? 'SOL' : 'USDC';
+    const decimals = tokenMint === TOKEN_MINTS.SOL ? 9 : 6; // SOL has 9 decimals, USDC has 6
+    
+    const dbTransfer = await createTransfer(senderUser.id, transferType, {
+      fromAddress,
+      toAddress,
+      tokenType,
+      amount: parseFloat(amount),
+      decimals,
+      mintAddress: tokenMint === TOKEN_MINTS.SOL ? undefined : tokenMint,
+      serializedTransaction: transactionResult.transaction,
+      recentBlockhash: undefined, // Not available from blockchain service
+      feeAmount: undefined, // Not available from blockchain service
+      priorityFee: undefined, // Not available from blockchain service
+      gridResponse: transactionPayloadResponse,
+      blockchainResponse: executedTxResponse,
+      memo: memo || undefined,
+    });
+
+    // Update transfer status to confirmed
+    await updateTransferStatus(dbTransfer.id, 'CONFIRMED', {
+      transactionSignature: executedTx?.signature,
+      blockchainResponse: executedTxResponse,
+    });
+
     res.status(200).json({
       message: 'Transaction sent successfully',
       transaction: {
-        id: `tx_${Date.now()}`,
+        id: dbTransfer.id,
         signature: executedTx?.signature || 'pending',
         from: {
           email: senderUser.email,
@@ -3783,5 +3866,1622 @@ export const checkSessionStatus = async (req: Request, res: Response) => {
   } catch (error) {
     Logger.error('Error checking session status:', error);
     res.status(500).json({ error: 'Failed to check session status' });
+  }
+};
+
+// ===========================================
+// YIELD INVESTMENT FUNCTIONS (LULO INTEGRATION)
+// ===========================================
+
+// Helper function to create yield transaction record
+const createYieldTransaction = async (
+  userId: string,
+  type: 'INITIALIZE_REFERRER' | 'DEPOSIT' | 'WITHDRAW_PROTECTED' | 'INITIATE_REGULAR_WITHDRAW' | 'COMPLETE_REGULAR_WITHDRAWAL',
+  data: {
+    owner: string;
+    feePayer: string;
+    mintAddress?: string;
+    regularAmount?: number;
+    protectedAmount?: number;
+    amount?: number;
+    referrer?: string;
+    pendingWithdrawalId?: number;
+    priorityFee?: string;
+    serializedTransaction?: string;
+    luloResponse?: any;
+    errorMessage?: string;
+  }
+) => {
+  try {
+    const transaction = await (prisma as any).yieldTransaction.create({
+      data: {
+        userId,
+        type,
+        status: 'GENERATED',
+        owner: data.owner,
+        feePayer: data.feePayer,
+        mintAddress: data.mintAddress,
+        regularAmount: data.regularAmount,
+        protectedAmount: data.protectedAmount,
+        amount: data.amount,
+        referrer: data.referrer,
+        pendingWithdrawalId: data.pendingWithdrawalId,
+        serializedTransaction: data.serializedTransaction,
+        priorityFee: data.priorityFee,
+        luloResponse: data.luloResponse,
+        errorMessage: data.errorMessage,
+      },
+    });
+
+    Logger.info(`Yield transaction created: ${transaction.id} (${type})`);
+    return transaction;
+  } catch (error) {
+    Logger.error('Error creating yield transaction:', error);
+    throw error;
+  }
+};
+
+// Helper function to update transaction status
+const updateYieldTransactionStatus = async (
+  transactionId: string,
+  status: 'PENDING' | 'GENERATED' | 'SIGNED' | 'SUBMITTED' | 'CONFIRMED' | 'FAILED' | 'CANCELLED',
+  additionalData?: {
+    transactionSignature?: string;
+    errorMessage?: string;
+  }
+) => {
+  try {
+    const updateData: any = { status };
+    if (additionalData?.transactionSignature) {
+      updateData.transactionSignature = additionalData.transactionSignature;
+    }
+    if (additionalData?.errorMessage) {
+      updateData.errorMessage = additionalData.errorMessage;
+    }
+
+    const transaction = await (prisma as any).yieldTransaction.update({
+      where: { id: transactionId },
+      data: updateData,
+    });
+
+    Logger.info(`Yield transaction updated: ${transactionId} -> ${status}`);
+    return transaction;
+  } catch (error) {
+    Logger.error('Error updating yield transaction:', error);
+    throw error;
+  }
+};
+
+// Helper function to create transfer record
+const createTransfer = async (
+  userId: string,
+  type: 'SOL_TRANSFER' | 'USDC_TRANSFER',
+  data: {
+    fromAddress: string;
+    toAddress: string;
+    tokenType: 'SOL' | 'USDC';
+    amount: number;
+    decimals: number;
+    mintAddress?: string;
+    serializedTransaction?: string;
+    recentBlockhash?: string;
+    feeAmount?: number;
+    priorityFee?: string;
+    gridResponse?: any;
+    blockchainResponse?: any;
+    errorMessage?: string;
+    memo?: string;
+  }
+) => {
+  try {
+    const transfer = await (prisma as any).transfer.create({
+      data: {
+        userId,
+        type,
+        status: 'PREPARED',
+        fromAddress: data.fromAddress,
+        toAddress: data.toAddress,
+        tokenType: data.tokenType,
+        amount: data.amount,
+        decimals: data.decimals,
+        mintAddress: data.mintAddress,
+        serializedTransaction: data.serializedTransaction,
+        recentBlockhash: data.recentBlockhash,
+        feeAmount: data.feeAmount,
+        priorityFee: data.priorityFee,
+        gridResponse: data.gridResponse,
+        blockchainResponse: data.blockchainResponse,
+        errorMessage: data.errorMessage,
+        memo: data.memo,
+      },
+    });
+
+    Logger.info(`Transfer created: ${transfer.id} (${type})`);
+    return transfer;
+  } catch (error) {
+    Logger.error('Error creating transfer:', error);
+    throw error;
+  }
+};
+
+// Helper function to update transfer status
+const updateTransferStatus = async (
+  transferId: string,
+  status: 'PENDING' | 'PREPARED' | 'SIGNED' | 'SUBMITTED' | 'CONFIRMED' | 'FAILED' | 'CANCELLED',
+  additionalData?: {
+    transactionSignature?: string;
+    blockchainResponse?: any;
+    errorMessage?: string;
+  }
+) => {
+  try {
+    const updateData: any = { status };
+    if (additionalData?.transactionSignature) {
+      updateData.transactionSignature = additionalData.transactionSignature;
+    }
+    if (additionalData?.blockchainResponse) {
+      updateData.blockchainResponse = additionalData.blockchainResponse;
+    }
+    if (additionalData?.errorMessage) {
+      updateData.errorMessage = additionalData.errorMessage;
+    }
+
+    const transfer = await (prisma as any).transfer.update({
+      where: { id: transferId },
+      data: updateData,
+    });
+
+    Logger.info(`Transfer updated: ${transferId} -> ${status}`);
+    return transfer;
+  } catch (error) {
+    Logger.error('Error updating transfer:', error);
+    throw error;
+  }
+};
+
+// Initialize Referrer Account
+export const initializeReferrer = async (req: Request, res: Response) => {
+  try {
+    const { email, priorityFee } = req.body;
+
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: decodedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        authResult: true,
+        sessionSecrets: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Use Grid address as owner and fee payer
+    const gridAddress = user.gridAddress;
+    if (!gridAddress) {
+      return res.status(400).json({ 
+        error: 'User does not have a Grid account',
+        details: 'User must have a Grid account to initialize referrer'
+      });
+    }
+
+    Logger.info(`Initializing referrer for user ${email} (Grid address: ${gridAddress})`);
+
+    // Generate transaction using Lulo API
+    const transactionResponse = await luloService.initializeReferrer(
+      gridAddress,
+      gridAddress,
+      priorityFee
+    );
+
+    Logger.info(`Referrer initialization transaction generated for user ${email}`);
+
+    // Store transaction in database
+    const dbTransaction = await createYieldTransaction(user.id, 'INITIALIZE_REFERRER', {
+      owner: gridAddress,
+      feePayer: gridAddress,
+      priorityFee: priorityFee || 'dynamic',
+      serializedTransaction: transactionResponse.transaction,
+      luloResponse: transactionResponse,
+    });
+
+    // Check if user has Grid authentication data for automatic signing
+    if (!user.authResult || !user.sessionSecrets) {
+      return res.json({
+        message: 'Referrer initialization transaction generated successfully',
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          walletAddress: user.walletAddress,
+          gridAddress: user.gridAddress,
+        },
+        transaction: {
+          id: dbTransaction.id,
+          serializedTransaction: transactionResponse.transaction,
+          owner: gridAddress,
+          feePayer: gridAddress,
+          priorityFee: priorityFee || 'dynamic',
+          status: dbTransaction.status,
+          createdAt: dbTransaction.createdAt,
+        },
+        instructions: 'Sign and send this transaction to initialize your referrer account',
+        autoSigning: 'unavailable',
+        reason: 'Missing Grid authentication data'
+      });
+    }
+
+    // Construct gridData from simplified JSON fields
+    const gridData = {
+      authData: user.authResult,
+      sessionData: user.sessionSecrets,
+      accountData: {
+        address: gridAddress,
+        status: user.gridStatus,
+      },
+    };
+
+    // Validate authentication data
+    if (!gridData.sessionData || !(gridData.authData as any)?.authentication) {
+      return res.json({
+        message: 'Referrer initialization transaction generated successfully',
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          walletAddress: user.walletAddress,
+          gridAddress: user.gridAddress,
+        },
+        transaction: {
+          id: dbTransaction.id,
+          serializedTransaction: transactionResponse.transaction,
+          owner: gridAddress,
+          feePayer: gridAddress,
+          priorityFee: priorityFee || 'dynamic',
+          status: dbTransaction.status,
+          createdAt: dbTransaction.createdAt,
+        },
+        instructions: 'Sign and send this transaction to initialize your referrer account',
+        autoSigning: 'unavailable',
+        reason: 'Invalid authentication data'
+      });
+    }
+
+    // Attempt automatic transaction signing and execution
+    try {
+      Logger.info(`Attempting automatic referrer initialization for user ${email}`);
+
+      // Prepare transaction using Grid SDK (following the guide pattern)
+      Logger.info("Preparing referrer initialization transaction with Grid SDK:", {
+        gridAddress: gridData.accountData.address,
+        transactionLength: transactionResponse.transaction.length,
+        feeConfig: {
+          currency: 'sol',
+          payer_address: gridData.accountData.address
+        }
+      });
+
+      const gridtx = await gridClient.prepareArbitraryTransaction(
+        gridData.accountData.address,
+        {
+          transaction: transactionResponse.transaction,
+          fee_config: {
+            currency: 'sol',
+            payer_address: gridData.accountData.address
+          }
+        }
+      );
+
+      Logger.info("Prepared referrer initialization transaction:", {
+        success: gridtx?.success,
+        hasData: !!gridtx?.data,
+        error: gridtx?.error,
+        fullResponse: gridtx
+      });
+      
+      if (!gridtx?.data) {
+        Logger.error('Failed to prepare transaction:', gridtx);
+        throw new Error("Failed to prepare transaction");
+      }
+
+      // Prepare the transaction payload
+      const transactionPayload = gridtx.data;
+
+      // Sign with managed authentication (following the guide pattern)
+      const executedTxResponse = await gridClient.signAndSend({
+        sessionSecrets: gridData.sessionData as any, // From account creation step
+        session: (gridData.authData as any).authentication, // Auth token from previous step
+        transactionPayload: transactionPayload, // Transaction data from referrer initialization
+        address: gridData.accountData.address
+      });
+
+      // Extract transaction signature
+      const executedTx = (executedTxResponse as any).data || executedTxResponse;
+      const transactionSignature = executedTx?.signature;
+
+      // Update transaction status to confirmed
+      await updateYieldTransactionStatus(dbTransaction.id, 'CONFIRMED', {
+        transactionSignature,
+      });
+
+      Logger.info(`Referrer initialization completed automatically for user ${email}, signature: ${transactionSignature}`);
+
+      res.json({
+        message: 'Referrer initialization completed successfully',
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          walletAddress: user.walletAddress,
+          gridAddress: user.gridAddress,
+        },
+        transaction: {
+          id: dbTransaction.id,
+          serializedTransaction: transactionResponse.transaction,
+          owner: gridAddress,
+          feePayer: gridAddress,
+          priorityFee: priorityFee || 'dynamic',
+          status: 'CONFIRMED',
+          transactionSignature,
+          createdAt: dbTransaction.createdAt,
+        },
+        autoSigning: 'success',
+        signature: transactionSignature,
+        instructions: 'Referrer account has been initialized successfully'
+      });
+
+    } catch (signingError: any) {
+      Logger.error('Automatic referrer initialization failed:', {
+        error: signingError,
+        message: signingError?.message,
+        response: signingError?.response?.data,
+        userEmail: email,
+        gridAddress: gridData.accountData.address,
+        transactionLength: transactionResponse.transaction.length
+      });
+      
+      // Update transaction status to failed
+      await updateYieldTransactionStatus(dbTransaction.id, 'FAILED', {
+        errorMessage: signingError?.message || 'Automatic signing failed'
+      });
+
+      res.json({
+        message: 'Referrer initialization transaction generated successfully',
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          walletAddress: user.walletAddress,
+          gridAddress: user.gridAddress,
+        },
+        transaction: {
+          id: dbTransaction.id,
+          serializedTransaction: transactionResponse.transaction,
+          owner: gridAddress,
+          feePayer: gridAddress,
+          priorityFee: priorityFee || 'dynamic',
+          status: 'FAILED',
+          createdAt: dbTransaction.createdAt,
+        },
+        instructions: 'Sign and send this transaction to initialize your referrer account',
+        autoSigning: 'failed',
+        error: signingError?.message || 'Automatic signing failed',
+        errorDetails: {
+          message: signingError?.message,
+          response: signingError?.response?.data,
+          type: signingError?.name || 'UnknownError'
+        },
+        fallback: 'Manual signing required'
+      });
+    }
+  } catch (error) {
+    Logger.error('Error initializing referrer:', error);
+    res.status(500).json({ 
+      error: 'Failed to initialize referrer',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Deposit to Yield Pool
+export const depositToYield = async (req: Request, res: Response) => {
+  try {
+    const { 
+      email, 
+      mintAddress, 
+      regularAmount, 
+      protectedAmount, 
+      referrer, 
+      priorityFee 
+    } = req.body;
+
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: decodedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        authResult: true,
+        sessionSecrets: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Use Grid address as owner and fee payer
+    const gridAddress = user.gridAddress;
+    if (!gridAddress) {
+      return res.status(400).json({ 
+        error: 'User does not have a Grid account',
+        details: 'User must have a Grid account to deposit to yield'
+      });
+    }
+
+    // Validate that at least one amount is provided
+    if (regularAmount === undefined && protectedAmount === undefined) {
+      return res.status(400).json({ 
+        error: 'At least one amount (regular or protected) must be provided'
+      });
+    }
+
+    Logger.info(`Depositing to yield for user ${email}:`, {
+      gridAddress,
+      mintAddress,
+      regularAmount,
+      protectedAmount,
+      referrer,
+      priorityFee
+    });
+
+    // Generate transaction using Lulo API
+    const transactionResponse = await luloService.generateDepositTransaction(
+      gridAddress,
+      gridAddress,
+      mintAddress,
+      regularAmount,
+      protectedAmount,
+      referrer,
+      priorityFee
+    );
+
+    Logger.info(`Yield deposit transaction generated for user ${email}`);
+
+    // Store transaction in database
+    const dbTransaction = await createYieldTransaction(user.id, 'DEPOSIT', {
+      owner: gridAddress,
+      feePayer: gridAddress,
+      mintAddress,
+      regularAmount: regularAmount || 0,
+      protectedAmount: protectedAmount || 0,
+      referrer: referrer || null,
+      priorityFee: priorityFee || 'dynamic',
+      serializedTransaction: transactionResponse.transaction,
+      luloResponse: transactionResponse,
+    });
+
+    // Check if user has Grid authentication data for automatic signing
+    if (!user.authResult || !user.sessionSecrets) {
+      return res.json({
+        message: 'Yield deposit transaction generated successfully',
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          walletAddress: user.walletAddress,
+          gridAddress: user.gridAddress,
+        },
+        deposit: {
+          id: dbTransaction.id,
+          serializedTransaction: transactionResponse.transaction,
+          owner: gridAddress,
+          feePayer: gridAddress,
+          mintAddress,
+          regularAmount: regularAmount || 0,
+          protectedAmount: protectedAmount || 0,
+          referrer: referrer || null,
+          priorityFee: priorityFee || 'dynamic',
+          status: dbTransaction.status,
+          createdAt: dbTransaction.createdAt,
+        },
+        instructions: 'Sign and send this transaction to deposit to the yield pool',
+        autoSigning: 'unavailable',
+        reason: 'Missing Grid authentication data'
+      });
+    }
+
+    // Construct gridData from simplified JSON fields
+    const gridData = {
+      authData: user.authResult,
+      sessionData: user.sessionSecrets,
+      accountData: {
+        address: gridAddress,
+        status: user.gridStatus,
+      },
+    };
+
+    // Validate authentication data
+    if (!gridData.sessionData || !(gridData.authData as any)?.authentication) {
+      return res.json({
+        message: 'Yield deposit transaction generated successfully',
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          walletAddress: user.walletAddress,
+          gridAddress: user.gridAddress,
+        },
+        deposit: {
+          id: dbTransaction.id,
+          serializedTransaction: transactionResponse.transaction,
+          owner: gridAddress,
+          feePayer: gridAddress,
+          mintAddress,
+          regularAmount: regularAmount || 0,
+          protectedAmount: protectedAmount || 0,
+          referrer: referrer || null,
+          priorityFee: priorityFee || 'dynamic',
+          status: dbTransaction.status,
+          createdAt: dbTransaction.createdAt,
+        },
+        instructions: 'Sign and send this transaction to deposit to the yield pool',
+        autoSigning: 'unavailable',
+        reason: 'Invalid authentication data'
+      });
+    }
+
+    // Attempt automatic transaction signing and execution
+    try {
+      Logger.info(`Attempting automatic yield deposit for user ${email}`);
+
+      // Prepare transaction using Grid SDK (following the guide pattern)
+      const gridtx = await gridClient.prepareArbitraryTransaction(
+        gridData.accountData.address,
+        {
+          transaction: transactionResponse.transaction,
+          fee_config: {
+            currency: 'sol',
+            payer_address: gridData.accountData.address
+          }
+        }
+      );
+
+      Logger.info("Prepared yield deposit transaction:", gridtx);
+      
+      if (!gridtx?.data) {
+        Logger.error('Failed to prepare transaction:', gridtx);
+        throw new Error("Failed to prepare transaction");
+      }
+
+      // Prepare the transaction payload
+      const transactionPayload = gridtx.data;
+
+      // Sign with managed authentication (following the guide pattern)
+      const executedTxResponse = await gridClient.signAndSend({
+        sessionSecrets: gridData.sessionData as any, // From account creation step
+        session: (gridData.authData as any).authentication, // Auth token from previous step
+        transactionPayload: transactionPayload, // Transaction data from yield deposit
+        address: gridData.accountData.address
+      });
+
+      // Extract transaction signature
+      const executedTx = (executedTxResponse as any).data || executedTxResponse;
+      const transactionSignature = executedTx?.signature;
+
+      // Update transaction status to confirmed
+      await updateYieldTransactionStatus(dbTransaction.id, 'CONFIRMED', {
+        transactionSignature,
+      });
+
+      Logger.info(`Yield deposit completed automatically for user ${email}, signature: ${transactionSignature}`);
+
+      res.json({
+        message: 'Yield deposit completed successfully',
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          walletAddress: user.walletAddress,
+          gridAddress: user.gridAddress,
+        },
+        deposit: {
+          id: dbTransaction.id,
+          serializedTransaction: transactionResponse.transaction,
+          owner: gridAddress,
+          feePayer: gridAddress,
+          mintAddress,
+          regularAmount: regularAmount || 0,
+          protectedAmount: protectedAmount || 0,
+          referrer: referrer || null,
+          priorityFee: priorityFee || 'dynamic',
+          status: 'CONFIRMED',
+          transactionSignature,
+          createdAt: dbTransaction.createdAt,
+        },
+        autoSigning: 'success',
+        signature: transactionSignature,
+        instructions: 'Deposit to yield pool has been completed successfully'
+      });
+
+    } catch (signingError: any) {
+      Logger.error('Automatic yield deposit failed:', signingError);
+      
+      // Update transaction status to failed
+      await updateYieldTransactionStatus(dbTransaction.id, 'FAILED', {
+        errorMessage: signingError?.message || 'Automatic signing failed'
+      });
+
+      res.json({
+        message: 'Yield deposit transaction generated successfully',
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          walletAddress: user.walletAddress,
+          gridAddress: user.gridAddress,
+        },
+        deposit: {
+          id: dbTransaction.id,
+          serializedTransaction: transactionResponse.transaction,
+          owner: gridAddress,
+          feePayer: gridAddress,
+          mintAddress,
+          regularAmount: regularAmount || 0,
+          protectedAmount: protectedAmount || 0,
+          referrer: referrer || null,
+          priorityFee: priorityFee || 'dynamic',
+          status: 'FAILED',
+          createdAt: dbTransaction.createdAt,
+        },
+        instructions: 'Sign and send this transaction to deposit to the yield pool',
+        autoSigning: 'failed',
+        error: signingError?.message || 'Automatic signing failed',
+        fallback: 'Manual signing required'
+      });
+    }
+  } catch (error) {
+    Logger.error('Error depositing to yield:', error);
+    res.status(500).json({ 
+      error: 'Failed to deposit to yield',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Withdraw Protected (PUSD)
+export const withdrawProtected = async (req: Request, res: Response) => {
+  try {
+    const { email, mintAddress, amount, priorityFee } = req.body;
+
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: decodedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        authResult: true,
+        sessionSecrets: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Use Grid address as owner and fee payer
+    const gridAddress = user.gridAddress;
+    if (!gridAddress) {
+      return res.status(400).json({ 
+        error: 'User does not have a Grid account',
+        details: 'User must have a Grid account to withdraw protected funds'
+      });
+    }
+
+    Logger.info(`Withdrawing protected funds for user ${email}:`, {
+      gridAddress,
+      mintAddress,
+      amount,
+      priorityFee
+    });
+
+    // Generate transaction using Lulo API
+    const transactionResponse = await luloService.generateWithdrawProtectedTransaction(
+      gridAddress,
+      gridAddress,
+      mintAddress,
+      amount,
+      priorityFee
+    );
+
+    Logger.info(`Protected withdrawal transaction generated for user ${email}`);
+
+    // Store transaction in database
+    const dbTransaction = await createYieldTransaction(user.id, 'WITHDRAW_PROTECTED', {
+      owner: gridAddress,
+      feePayer: gridAddress,
+      mintAddress,
+      amount,
+      priorityFee: priorityFee || 'dynamic',
+      serializedTransaction: transactionResponse.transaction,
+      luloResponse: transactionResponse,
+    });
+
+    res.json({
+      message: 'Protected withdrawal transaction generated successfully',
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        walletAddress: user.walletAddress,
+        gridAddress: user.gridAddress,
+      },
+      withdrawal: {
+        id: dbTransaction.id,
+        serializedTransaction: transactionResponse.transaction,
+        owner: gridAddress,
+        feePayer: gridAddress,
+        mintAddress,
+        amount,
+        priorityFee: priorityFee || 'dynamic',
+        type: 'protected',
+        status: dbTransaction.status,
+        createdAt: dbTransaction.createdAt,
+      },
+      instructions: 'Sign and send this transaction to withdraw protected funds',
+    });
+  } catch (error) {
+    Logger.error('Error withdrawing protected funds:', error);
+    res.status(500).json({ 
+      error: 'Failed to withdraw protected funds',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Initiate Regular Withdraw (LUSD)
+export const initiateRegularWithdraw = async (req: Request, res: Response) => {
+  try {
+    const { email, mintAddress, amount, priorityFee } = req.body;
+
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: decodedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        authResult: true,
+        sessionSecrets: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Use Grid address as owner and fee payer
+    const gridAddress = user.gridAddress;
+    if (!gridAddress) {
+      return res.status(400).json({ 
+        error: 'User does not have a Grid account',
+        details: 'User must have a Grid account to initiate regular withdrawal'
+      });
+    }
+
+    Logger.info(`Initiating regular withdrawal for user ${email}:`, {
+      gridAddress,
+      mintAddress,
+      amount,
+      priorityFee
+    });
+
+    // Generate transaction using Lulo API
+    const transactionResponse = await luloService.generateInitiateRegularWithdrawTransaction(
+      gridAddress,
+      gridAddress,
+      mintAddress,
+      amount,
+      priorityFee
+    );
+
+    Logger.info(`Regular withdrawal initiation transaction generated for user ${email}`);
+
+    // Store transaction in database
+    const dbTransaction = await createYieldTransaction(user.id, 'INITIATE_REGULAR_WITHDRAW', {
+      owner: gridAddress,
+      feePayer: gridAddress,
+      mintAddress,
+      amount,
+      priorityFee: priorityFee || 'dynamic',
+      serializedTransaction: transactionResponse.transaction,
+      luloResponse: transactionResponse,
+    });
+
+    res.json({
+      message: 'Regular withdrawal initiation transaction generated successfully',
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        walletAddress: user.walletAddress,
+        gridAddress: user.gridAddress,
+      },
+      withdrawal: {
+        id: dbTransaction.id,
+        serializedTransaction: transactionResponse.transaction,
+        owner: gridAddress,
+        feePayer: gridAddress,
+        mintAddress,
+        amount,
+        priorityFee: priorityFee || 'dynamic',
+        type: 'regular',
+        status: 'initiated',
+        dbStatus: dbTransaction.status,
+        createdAt: dbTransaction.createdAt,
+      },
+      instructions: 'Sign and send this transaction to initiate regular withdrawal. You will need to complete the withdrawal later.',
+    });
+  } catch (error) {
+    Logger.error('Error initiating regular withdrawal:', error);
+    res.status(500).json({ 
+      error: 'Failed to initiate regular withdrawal',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Complete Regular Withdrawal
+export const completeRegularWithdrawal = async (req: Request, res: Response) => {
+  try {
+    const { email, pendingWithdrawalId, priorityFee } = req.body;
+
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: decodedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        authResult: true,
+        sessionSecrets: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Use Grid address as owner and fee payer
+    const gridAddress = user.gridAddress;
+    if (!gridAddress) {
+      return res.status(400).json({ 
+        error: 'User does not have a Grid account',
+        details: 'User must have a Grid account to complete regular withdrawal'
+      });
+    }
+
+    Logger.info(`Completing regular withdrawal for user ${email}:`, {
+      gridAddress,
+      pendingWithdrawalId,
+      priorityFee
+    });
+
+    // Generate transaction using Lulo API
+    const transactionResponse = await luloService.generateCompleteRegularWithdrawalTransaction(
+      gridAddress,
+      pendingWithdrawalId,
+      gridAddress,
+      priorityFee
+    );
+
+    Logger.info(`Regular withdrawal completion transaction generated for user ${email}`);
+
+    // Store transaction in database
+    const dbTransaction = await createYieldTransaction(user.id, 'COMPLETE_REGULAR_WITHDRAWAL', {
+      owner: gridAddress,
+      feePayer: gridAddress,
+      pendingWithdrawalId,
+      priorityFee: priorityFee || 'dynamic',
+      serializedTransaction: transactionResponse.transaction,
+      luloResponse: transactionResponse,
+    });
+
+    res.json({
+      message: 'Regular withdrawal completion transaction generated successfully',
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        walletAddress: user.walletAddress,
+        gridAddress: user.gridAddress,
+      },
+      withdrawal: {
+        id: dbTransaction.id,
+        serializedTransaction: transactionResponse.transaction,
+        owner: gridAddress,
+        feePayer: gridAddress,
+        pendingWithdrawalId,
+        priorityFee: priorityFee || 'dynamic',
+        type: 'regular',
+        status: 'completing',
+        dbStatus: dbTransaction.status,
+        createdAt: dbTransaction.createdAt,
+      },
+      instructions: 'Sign and send this transaction to complete your regular withdrawal',
+    });
+  } catch (error) {
+    Logger.error('Error completing regular withdrawal:', error);
+    res.status(500).json({ 
+      error: 'Failed to complete regular withdrawal',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get Yield Account Data
+export const getYieldAccount = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: decodedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        authResult: true,
+        sessionSecrets: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Use Grid address as owner
+    const gridAddress = user.gridAddress;
+    if (!gridAddress) {
+      return res.status(400).json({ 
+        error: 'User does not have a Grid account',
+        details: 'User must have a Grid account to get yield data'
+      });
+    }
+
+    Logger.info(`Getting yield account data for user ${email} (Grid address: ${gridAddress})`);
+
+    // Get account data using Lulo API
+    const accountData = await luloService.getAccount(gridAddress);
+
+    Logger.info(`Yield account data retrieved for user ${email}`);
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        walletAddress: user.walletAddress,
+        gridAddress: user.gridAddress,
+      },
+      accountData: accountData,
+      source: 'lulo-api',
+    });
+  } catch (error) {
+    Logger.error('Error getting yield account data:', error);
+    res.status(500).json({ 
+      error: 'Failed to get yield account data',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get Pending Withdrawals
+export const getPendingWithdrawals = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: decodedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        authResult: true,
+        sessionSecrets: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Use Grid address as owner
+    const gridAddress = user.gridAddress;
+    if (!gridAddress) {
+      return res.status(400).json({ 
+        error: 'User does not have a Grid account',
+        details: 'User must have a Grid account to get pending withdrawals'
+      });
+    }
+
+    Logger.info(`Getting pending withdrawals for user ${email} (Grid address: ${gridAddress})`);
+
+    // Get pending withdrawals using Lulo API
+    const pendingWithdrawals = await luloService.getPendingWithdrawals(gridAddress);
+
+    Logger.info(`Pending withdrawals retrieved for user ${email}:`, {
+      count: pendingWithdrawals.pendingWithdrawals.length
+    });
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        walletAddress: user.walletAddress,
+        gridAddress: user.gridAddress,
+      },
+      pendingWithdrawals: pendingWithdrawals.pendingWithdrawals,
+      summary: {
+        totalPending: pendingWithdrawals.pendingWithdrawals.length,
+        source: 'lulo-api',
+      },
+    });
+  } catch (error) {
+    Logger.error('Error getting pending withdrawals:', error);
+    res.status(500).json({ 
+      error: 'Failed to get pending withdrawals',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get Pool Information
+export const getPoolInfo = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.query;
+
+    let owner: string | undefined;
+    if (email && typeof email === 'string') {
+      const decodedEmail = decodeURIComponent(email);
+      
+      // Find user by email
+      const user = await prisma.user.findUnique({
+        where: { email: decodedEmail },
+        select: {
+          gridAddress: true,
+        },
+      });
+
+      if (user?.gridAddress) {
+        owner = user.gridAddress;
+      }
+    }
+
+    Logger.info('Getting pool information from Lulo API');
+
+    // Get pool information using Lulo API
+    const poolData = await luloService.getPools(owner);
+
+    Logger.info('Pool information retrieved successfully');
+
+    res.json({
+      pools: poolData,
+      source: 'lulo-api',
+      userSpecific: !!owner,
+    });
+  } catch (error) {
+    Logger.error('Error getting pool information:', error);
+    res.status(500).json({ 
+      error: 'Failed to get pool information',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get Yield Rates
+export const getYieldRates = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.query;
+
+    let owner: string | undefined;
+    if (email && typeof email === 'string') {
+      const decodedEmail = decodeURIComponent(email);
+      
+      // Find user by email
+      const user = await prisma.user.findUnique({
+        where: { email: decodedEmail },
+        select: {
+          gridAddress: true,
+        },
+      });
+
+      if (user?.gridAddress) {
+        owner = user.gridAddress;
+      }
+    }
+
+    Logger.info('Getting yield rates from Lulo API');
+
+    // Get yield rates using Lulo API
+    const ratesData = await luloService.getRates(owner);
+
+    Logger.info('Yield rates retrieved successfully');
+
+    res.json({
+      rates: ratesData,
+      source: 'lulo-api',
+      userSpecific: !!owner,
+    });
+  } catch (error) {
+    Logger.error('Error getting yield rates:', error);
+    res.status(500).json({ 
+      error: 'Failed to get yield rates',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get Referrer Information
+export const getReferrerInfo = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: decodedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        authResult: true,
+        sessionSecrets: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Use Grid address as owner
+    const gridAddress = user.gridAddress;
+    if (!gridAddress) {
+      return res.status(400).json({ 
+        error: 'User does not have a Grid account',
+        details: 'User must have a Grid account to get referrer information'
+      });
+    }
+
+    Logger.info(`Getting referrer information for user ${email} (Grid address: ${gridAddress})`);
+
+    // Get referrer information using Lulo API
+    const referrerData = await luloService.getReferrer(gridAddress);
+
+    Logger.info(`Referrer information retrieved for user ${email}`);
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        walletAddress: user.walletAddress,
+        gridAddress: user.gridAddress,
+      },
+      referrerData: referrerData,
+      source: 'lulo-api',
+    });
+  } catch (error) {
+    Logger.error('Error getting referrer information:', error);
+    res.status(500).json({ 
+      error: 'Failed to get referrer information',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get User's Yield Transaction History
+export const getUserYieldTransactions = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+    const { 
+      limit = 10, 
+      offset = 0, 
+      type,
+      status,
+      startDate,
+      endDate 
+    } = req.query;
+
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: decodedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    Logger.info(`Getting yield transaction history for user ${email}`);
+
+    // Build where clause
+    const whereClause: any = {
+      userId: user.id,
+    };
+
+    if (type && typeof type === 'string') {
+      whereClause.type = type;
+    }
+    if (status && typeof status === 'string') {
+      whereClause.status = status;
+    }
+    if (startDate && typeof startDate === 'string') {
+      whereClause.createdAt = { ...whereClause.createdAt, gte: new Date(startDate) };
+    }
+    if (endDate && typeof endDate === 'string') {
+      whereClause.createdAt = { ...whereClause.createdAt, lte: new Date(endDate) };
+    }
+
+    // Get transactions with pagination
+    const transactions = await (prisma as any).yieldTransaction.findMany({
+      where: whereClause,
+      orderBy: { createdAt: 'desc' },
+      take: Number(limit),
+      skip: Number(offset),
+    });
+
+    // Get total count
+    const totalCount = await (prisma as any).yieldTransaction.count({
+      where: whereClause,
+    });
+
+    Logger.info(`Retrieved ${transactions.length} yield transactions for user ${email}`);
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        walletAddress: user.walletAddress,
+        gridAddress: user.gridAddress,
+      },
+      transactions: transactions.map((tx: any) => ({
+        id: tx.id,
+        type: tx.type,
+        status: tx.status,
+        owner: tx.owner,
+        feePayer: tx.feePayer,
+        mintAddress: tx.mintAddress,
+        regularAmount: tx.regularAmount,
+        protectedAmount: tx.protectedAmount,
+        amount: tx.amount,
+        referrer: tx.referrer,
+        pendingWithdrawalId: tx.pendingWithdrawalId,
+        priorityFee: tx.priorityFee,
+        transactionSignature: tx.transactionSignature,
+        errorMessage: tx.errorMessage,
+        createdAt: tx.createdAt,
+        updatedAt: tx.updatedAt,
+      })),
+      pagination: {
+        limit: Number(limit),
+        offset: Number(offset),
+        total: totalCount,
+        hasMore: Number(offset) + Number(limit) < totalCount,
+      },
+      filters: {
+        type: type || null,
+        status: status || null,
+        startDate: startDate || null,
+        endDate: endDate || null,
+      },
+    });
+  } catch (error) {
+    Logger.error('Error getting user yield transactions:', error);
+    res.status(500).json({ 
+      error: 'Failed to get user yield transactions',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Update Transaction Status (for external transaction execution)
+export const updateYieldTransactionStatusEndpoint = async (req: Request, res: Response) => {
+  try {
+    const { transactionId } = req.params;
+    const { status, transactionSignature, errorMessage } = req.body;
+
+    // Validate status
+    const validStatuses = ['PENDING', 'GENERATED', 'SIGNED', 'SUBMITTED', 'CONFIRMED', 'FAILED', 'CANCELLED'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        error: 'Invalid status',
+        details: `Status must be one of: ${validStatuses.join(', ')}`
+      });
+    }
+
+    Logger.info(`Updating yield transaction ${transactionId} status to ${status}`);
+
+    // Update transaction status
+    const updatedTransaction = await updateYieldTransactionStatus(
+      transactionId,
+      status,
+      { transactionSignature, errorMessage }
+    );
+
+    res.json({
+      message: 'Transaction status updated successfully',
+      transaction: {
+        id: updatedTransaction.id,
+        type: updatedTransaction.type,
+        status: updatedTransaction.status,
+        transactionSignature: updatedTransaction.transactionSignature,
+        errorMessage: updatedTransaction.errorMessage,
+        updatedAt: updatedTransaction.updatedAt,
+      },
+    });
+  } catch (error) {
+    Logger.error('Error updating yield transaction status:', error);
+    res.status(500).json({ 
+      error: 'Failed to update transaction status',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get User's Transfer History
+export const getUserTransferHistory = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+    const { 
+      limit = 10, 
+      offset = 0, 
+      type,
+      status,
+      tokenType,
+      startDate,
+      endDate 
+    } = req.query;
+
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: decodedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    Logger.info(`Getting transfer history for user ${email}`);
+
+    // Build where clause
+    const whereClause: any = {
+      userId: user.id,
+    };
+
+    if (type && typeof type === 'string') {
+      whereClause.type = type;
+    }
+    if (status && typeof status === 'string') {
+      whereClause.status = status;
+    }
+    if (tokenType && typeof tokenType === 'string') {
+      whereClause.tokenType = tokenType;
+    }
+    if (startDate && typeof startDate === 'string') {
+      whereClause.createdAt = { ...whereClause.createdAt, gte: new Date(startDate) };
+    }
+    if (endDate && typeof endDate === 'string') {
+      whereClause.createdAt = { ...whereClause.createdAt, lte: new Date(endDate) };
+    }
+
+    // Get transfers with pagination
+    const transfers = await (prisma as any).transfer.findMany({
+      where: whereClause,
+      orderBy: { createdAt: 'desc' },
+      take: Number(limit),
+      skip: Number(offset),
+    });
+
+    // Get total count
+    const totalCount = await (prisma as any).transfer.count({
+      where: whereClause,
+    });
+
+    Logger.info(`Retrieved ${transfers.length} transfers for user ${email}`);
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        walletAddress: user.walletAddress,
+        gridAddress: user.gridAddress,
+      },
+      transfers: transfers.map((transfer: any) => ({
+        id: transfer.id,
+        type: transfer.type,
+        status: transfer.status,
+        fromAddress: transfer.fromAddress,
+        toAddress: transfer.toAddress,
+        tokenType: transfer.tokenType,
+        amount: transfer.amount,
+        decimals: transfer.decimals,
+        mintAddress: transfer.mintAddress,
+        transactionSignature: transfer.transactionSignature,
+        feeAmount: transfer.feeAmount,
+        priorityFee: transfer.priorityFee,
+        memo: transfer.memo,
+        errorMessage: transfer.errorMessage,
+        createdAt: transfer.createdAt,
+        updatedAt: transfer.updatedAt,
+      })),
+      pagination: {
+        limit: Number(limit),
+        offset: Number(offset),
+        total: totalCount,
+        hasMore: Number(offset) + Number(limit) < totalCount,
+      },
+      filters: {
+        type: type || null,
+        status: status || null,
+        tokenType: tokenType || null,
+        startDate: startDate || null,
+        endDate: endDate || null,
+      },
+    });
+  } catch (error) {
+    Logger.error('Error getting user transfers:', error);
+    res.status(500).json({ 
+      error: 'Failed to get user transfers',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Update Transfer Status (for external transaction execution)
+export const updateTransferStatusEndpoint = async (req: Request, res: Response) => {
+  try {
+    const { transferId } = req.params;
+    const { status, transactionSignature, blockchainResponse, errorMessage } = req.body;
+
+    // Validate status
+    const validStatuses = ['PENDING', 'PREPARED', 'SIGNED', 'SUBMITTED', 'CONFIRMED', 'FAILED', 'CANCELLED'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        error: 'Invalid status',
+        details: `Status must be one of: ${validStatuses.join(', ')}`
+      });
+    }
+
+    Logger.info(`Updating transfer ${transferId} status to ${status}`);
+
+    // Update transfer status
+    const updatedTransfer = await updateTransferStatus(
+      transferId,
+      status,
+      { transactionSignature, blockchainResponse, errorMessage }
+    );
+
+    res.json({
+      message: 'Transfer status updated successfully',
+      transfer: {
+        id: updatedTransfer.id,
+        type: updatedTransfer.type,
+        status: updatedTransfer.status,
+        transactionSignature: updatedTransfer.transactionSignature,
+        errorMessage: updatedTransfer.errorMessage,
+        updatedAt: updatedTransfer.updatedAt,
+      },
+    });
+  } catch (error) {
+    Logger.error('Error updating transfer status:', error);
+    res.status(500).json({ 
+      error: 'Failed to update transfer status',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 };
