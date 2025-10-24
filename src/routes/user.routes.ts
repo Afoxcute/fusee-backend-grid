@@ -650,6 +650,10 @@ router.post('/grid/initiate', validateRequest(initiateGridAccountSchema), userCo
  *               value:
  *                 email: "john.doe@example.com"
  *                 otpCode: "123456"
+ *                 firstName: "John"
+ *                 lastName: "Doe"
+ *                 middleName: "Michael"
+ *                 phoneNumber: "+1234567890"
  *     responses:
  *       201:
  *         description: Grid account created successfully.
@@ -3085,5 +3089,113 @@ router.put('/yield/transactions/:transactionId/status', userController.updateYie
 // Transfer History Routes
 router.get('/email/:email/transfers', userController.getUserTransferHistory);
 router.put('/transfers/:transferId/status', userController.updateTransferStatusEndpoint);
+
+// Delete user by email
+/**
+ * @swagger
+ * /api/users/email/{email}:
+ *   delete:
+ *     summary: Delete user by email address
+ *     description: |
+ *       Deletes a user account and all associated data by email address.
+ *       
+ *       **Important Notes:**
+ *       - This action is irreversible
+ *       - All related records (transfers, yield transactions, etc.) will be automatically deleted due to cascade delete
+ *       - The user's Grid account data will also be removed
+ *       
+ *       **Security:**
+ *       - Requires proper authentication
+ *       - Email address is URL-decoded automatically
+ *       - Validates email format before processing
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         description: Email address of the user to delete
+ *         schema:
+ *           type: string
+ *           format: email
+ *           example: "user@example.com"
+ *     responses:
+ *       200:
+ *         description: User deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "User deleted successfully"
+ *                 deletedUser:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       example: "clx1234567890abcdef"
+ *                     email:
+ *                       type: string
+ *                       example: "user@example.com"
+ *                     firstName:
+ *                       type: string
+ *                       example: "John"
+ *                     lastName:
+ *                       type: string
+ *                       example: "Doe"
+ *                     gridAddress:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "33atfECaKPr97XLin7WbvCjLKgetZXPpfGJprgWAYE7j"
+ *                     gridStatus:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "success"
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-01-15T10:30:00Z"
+ *                 note:
+ *                   type: string
+ *                   example: "All related records (transfers, yield transactions, etc.) have been automatically deleted"
+ *       400:
+ *         description: Bad request - Invalid email format or missing email
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Invalid email format"
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "User not found"
+ *                 details:
+ *                   type: string
+ *                   example: "No user found with email: user@example.com"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Failed to delete user"
+ *                 details:
+ *                   type: string
+ *                   example: "Database error occurred"
+ */
+router.delete('/email/:email', userController.deleteUserByEmail);
 
 export default router;

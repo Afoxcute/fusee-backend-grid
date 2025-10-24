@@ -20,7 +20,7 @@ const options: swaggerJsdoc.Options = {
         description: 'Development server',
       },
       {
-        url: 'https://fusee-backend-grid-nyic.onrender.com',
+        url: 'https://api.fusee.com',
         description: 'Production server',
       },
     ],
@@ -48,17 +48,17 @@ const options: swaggerJsdoc.Options = {
             },
             lastName: {
               type: 'string',
-              description: 'User last name',
+              description: 'User last name (optional if already provided during initiate)',
               example: 'Doe',
             },
             middleName: {
               type: 'string',
-              description: 'User middle name',
+              description: 'User middle name (optional)',
               example: 'Michael',
             },
             phoneNumber: {
               type: 'string',
-              description: 'User phone number',
+              description: 'User phone number (optional)',
               example: '+1234567890',
             },
             walletAddress: {
@@ -138,17 +138,17 @@ const options: swaggerJsdoc.Options = {
             },
             lastName: {
               type: 'string',
-              description: 'User last name',
+              description: 'User last name (optional if already provided during initiate)',
               example: 'Doe',
             },
             middleName: {
               type: 'string',
-              description: 'User middle name',
+              description: 'User middle name (optional)',
               example: 'Michael',
             },
             phoneNumber: {
               type: 'string',
-              description: 'User phone number',
+              description: 'User phone number (optional)',
               example: '+1234567890',
             },
           },
@@ -169,17 +169,17 @@ const options: swaggerJsdoc.Options = {
             },
             lastName: {
               type: 'string',
-              description: 'User last name',
+              description: 'User last name (optional if already provided during initiate)',
               example: 'Doe',
             },
             middleName: {
               type: 'string',
-              description: 'User middle name',
+              description: 'User middle name (optional)',
               example: 'Michael',
             },
             phoneNumber: {
               type: 'string',
-              description: 'User phone number',
+              description: 'User phone number (optional)',
               example: '+1234567890',
             },
             walletAddress: {
@@ -211,17 +211,17 @@ const options: swaggerJsdoc.Options = {
             },
             lastName: {
               type: 'string',
-              description: 'User last name',
+              description: 'User last name (optional if already provided during initiate)',
               example: 'Doe',
             },
             middleName: {
               type: 'string',
-              description: 'User middle name',
+              description: 'User middle name (optional)',
               example: 'Michael',
             },
             phoneNumber: {
               type: 'string',
-              description: 'User phone number',
+              description: 'User phone number (optional)',
               example: '+1234567890',
             },
           },
@@ -242,27 +242,113 @@ const options: swaggerJsdoc.Options = {
               description: 'OTP code received via email (6 digits)',
               example: '123456',
             },
+            firstName: {
+              type: 'string',
+              description: 'User first name (optional if already provided during initiate)',
+              example: 'John',
+            },
+            lastName: {
+              type: 'string',
+              description: 'User last name (optional if already provided during initiate)',
+              example: 'Doe',
+            },
+            middleName: {
+              type: 'string',
+              description: 'User middle name (optional)',
+              example: 'Michael',
+            },
+            phoneNumber: {
+              type: 'string',
+              description: 'User phone number (optional)',
+              example: '+1234567890',
+            },
           },
         },
         GridAccountInitiateResponse: {
           type: 'object',
-          required: ['message', 'email', 'instructions'],
+          required: ['message', 'user', 'instructions'],
           properties: {
             message: {
               type: 'string',
               description: 'Success message',
               example: 'Account creation initiated successfully',
             },
-            email: {
-              type: 'string',
-              format: 'email',
-              description: 'User email address',
-              example: 'john.doe@example.com',
+            user: {
+              type: 'object',
+              required: ['id', 'email', 'firstName', 'lastName', 'gridStatus'],
+              properties: {
+                id: {
+                  type: 'string',
+                  description: 'User ID',
+                  example: 'clx1234567890abcdef',
+                },
+                email: {
+                  type: 'string',
+                  format: 'email',
+                  description: 'User email address',
+                  example: 'john.doe@example.com',
+                },
+                firstName: {
+                  type: 'string',
+                  description: 'User first name',
+                  example: 'John',
+                },
+                lastName: {
+                  type: 'string',
+                  description: 'User last name',
+                  example: 'Doe',
+                },
+                middleName: {
+                  type: 'string',
+                  description: 'User middle name',
+                  example: 'Michael',
+                },
+                phoneNumber: {
+                  type: 'string',
+                  description: 'User phone number',
+                  example: '+1234567890',
+                },
+                gridStatus: {
+                  type: 'string',
+                  description: 'Grid account status',
+                  example: 'pending',
+                },
+                createdAt: {
+                  type: 'string',
+                  format: 'date-time',
+                  description: 'User creation timestamp',
+                  example: '2024-01-15T10:30:00Z',
+                },
+              },
             },
             instructions: {
               type: 'string',
               description: 'Instructions for completing account creation',
-              example: 'Check your email for the OTP code and use it with the complete endpoint',
+              example: 'Check your email for the OTP code and use it with the complete endpoint. User details have been saved.',
+            },
+            nextStep: {
+              type: 'object',
+              required: ['endpoint', 'requiredFields'],
+              properties: {
+                endpoint: {
+                  type: 'string',
+                  description: 'Next endpoint to call',
+                  example: '/api/users/grid/complete',
+                },
+                requiredFields: {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                  },
+                  description: 'Required fields for next step',
+                  example: ['email', 'otpCode'],
+                },
+                note: {
+                  type: 'string',
+                  description: 'Additional note',
+                  example: 'User details are already saved, only email and OTP required',
+                },
+              },
             },
           },
         },
@@ -522,7 +608,7 @@ const options: swaggerJsdoc.Options = {
                 },
                 lastName: {
                   type: 'string',
-                  description: 'User last name',
+                  description: 'User last name (optional if already provided during initiate)',
                   example: 'Doe',
                 },
                 walletAddress: {
@@ -653,7 +739,7 @@ const options: swaggerJsdoc.Options = {
                 },
                 lastName: {
                   type: 'string',
-                  description: 'User last name',
+                  description: 'User last name (optional if already provided during initiate)',
                   example: 'Doe',
                 },
                 walletAddress: {

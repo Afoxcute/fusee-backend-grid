@@ -469,7 +469,7 @@ export const initiateGridAccount = async (req: Request, res: Response) => {
             message: 'This email already has a Grid account but no user record in our database.',
             action: 'Use the complete endpoint to finish account setup',
             endpoint: '/api/users/grid/complete',
-            requiredFields: ['email', 'otpCode', 'firstName', 'lastName', 'middleName', 'phoneNumber']
+            requiredFields: ['email', 'otpCode']
           }
         });
       }
@@ -480,31 +480,72 @@ export const initiateGridAccount = async (req: Request, res: Response) => {
       });
     }
 
-    Logger.info(`Grid account creation initiated for user ${email}`);
+    // Store user details in database during initiate step
+    try {
+      const user = await prisma.user.create({
+        data: {
+          email,
+          firstName: firstName || '',
+          lastName: lastName || '',
+          middleName: middleName || null,
+          phoneNumber: phoneNumber || null,
+          role: 'USER',
+          isActive: true,
+          gridStatus: 'pending', // Mark as pending until complete
+          // Grid account data will be added during complete step
+        },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          middleName: true,
+          phoneNumber: true,
+          role: true,
+          isActive: true,
+          gridStatus: true,
+          createdAt: true,
+        },
+      });
 
-    // Store user data temporarily for the complete step
-    // We'll store it in a simple in-memory cache with email as key
-    // In production, you might want to use Redis or database for this
-    const tempUserData = {
-      email,
-      firstName,
-      lastName,
-      middleName: middleName || '',
-      phoneNumber: phoneNumber || '',
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes expiry
-    };
+      Logger.info(`User details stored during initiate step: ${email} (ID: ${user.id})`);
 
-    // Store in temporary cache (in production, use Redis or database)
-    (global as any).tempUserData = (global as any).tempUserData || new Map();
-    (global as any).tempUserData.set(email, tempUserData);
+      res.status(201).json({ 
+        message: 'Account creation initiated successfully',
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          middleName: user.middleName,
+          phoneNumber: user.phoneNumber,
+          gridStatus: user.gridStatus,
+          createdAt: user.createdAt,
+        },
+        instructions: 'Check your email for the OTP code and use it with the complete endpoint. User details have been saved.',
+        nextStep: {
+          endpoint: '/api/users/grid/complete',
+          requiredFields: ['email', 'otpCode'],
+          note: 'User details are already saved, only email and OTP required'
+        }
+      });
 
-    res.status(201).json({ 
-      message: 'Account creation initiated successfully',
-      email: email,
-      instructions: 'Check your email for the OTP code and use it with the complete endpoint',
-      note: 'User data has been temporarily stored for account completion'
-    });
+    } catch (dbError) {
+      Logger.error('Database error during user creation in initiate step:', dbError);
+      
+      // If database storage fails, still return success for Grid account creation
+      // but inform user they may need to provide details again
+      res.status(201).json({ 
+        message: 'Grid account creation initiated successfully, but user details could not be saved',
+        email: email,
+        instructions: 'Check your email for the OTP code and use it with the complete endpoint',
+        warning: 'You may need to provide user details again during completion',
+        nextStep: {
+          endpoint: '/api/users/grid/complete',
+          requiredFields: ['email', 'otpCode', 'firstName', 'lastName', 'middleName', 'phoneNumber']
+        }
+      });
+    }
   } catch (error) {
     Logger.error('Error initiating Grid account:', error);
     res.status(500).json({ error: 'Failed to initiate Grid account' });
@@ -692,7 +733,7 @@ export const checkGridAccountStatus = async (req: Request, res: Response) => {
 export const completeGridAccount = async (req: Request, res: Response) => {
   try {
     const validatedData = req.body as CompleteGridAccountInput;
-    const { email, otpCode } = validatedData;
+    const { email, otpCode, firstName, lastName, middleName, phoneNumber } = validatedData;
 
     if (!email || !otpCode) {
       return res.status(400).json({ 
@@ -700,129 +741,314 @@ export const completeGridAccount = async (req: Request, res: Response) => {
       });
     }
 
-    // Retrieve stored user data from the initiate step
-    const tempUserData = (global as any).tempUserData?.get(email);
-    
-    if (!tempUserData) {
-      return res.status(400).json({
-        error: 'No pending account creation found',
-        details: 'Please initiate account creation first using the /api/users/grid/initiate endpoint',
-        guidance: {
-          message: 'Account creation data not found or expired',
-          action: 'Start account creation process again',
-          endpoint: '/api/users/grid/initiate',
-          requiredFields: ['email', 'firstName', 'lastName', 'middleName', 'phoneNumber']
-        }
+    // Validate OTP code format
+    if (!/^[0-9]{6}$/.test(otpCode)) {
+      return res.status(400).json({ 
+        error: 'Invalid OTP code format',
+        details: 'OTP code must be exactly 6 digits'
       });
     }
 
-    // Check if the temporary data has expired (15 minutes)
-    if (new Date() > tempUserData.expiresAt) {
-      // Clean up expired data
-      (global as any).tempUserData?.delete(email);
-      return res.status(400).json({
-        error: 'Account creation session expired',
-        details: 'The account creation session has expired. Please start the process again.',
-        guidance: {
-          message: 'Session expired after 15 minutes',
-          action: 'Restart account creation process',
-          endpoint: '/api/users/grid/initiate'
-        }
-      });
-    }
+    // Debug Grid client configuration
+    Logger.info(`Grid client configuration for ${email}:`, {
+      environment: process.env.GRID_ENVIRONMENT,
+      hasApiKey: !!process.env.GRID_API_KEY,
+      apiKeyLength: process.env.GRID_API_KEY?.length || 0
+    });
 
-    // Extract user data from stored temporary data
-    const { firstName, lastName, middleName, phoneNumber } = tempUserData;
-
-    // Check if user already exists
+    // Check if user already exists (from initiate step)
     const existingUser = await prisma.user.findUnique({
       where: { email },
     });
 
+    Logger.info(`User lookup for ${email}:`, {
+      exists: !!existingUser,
+      id: existingUser?.id,
+      gridAddress: existingUser?.gridAddress,
+      gridStatus: existingUser?.gridStatus,
+      hasAuthResult: !!existingUser?.authResult,
+      hasSessionSecrets: !!existingUser?.sessionSecrets,
+      endpoint: 'grid/complete',
+      recommendation: existingUser?.gridStatus === 'success' && existingUser?.gridAddress ? 'Use /api/users/grid/login/complete instead' : 'Continue with account creation'
+    });
+
     if (existingUser) {
-      return res.status(409).json({ 
-        error: 'User with this email already exists',
-        field: 'email'
-      });
-    }
-
-    // Check if phone number already exists (if provided)
-    if (phoneNumber && phoneNumber.trim() !== '') {
-      const existingPhoneUser = await prisma.user.findFirst({
-        where: { phoneNumber },
-      });
-
-      if (existingPhoneUser) {
+      // If user exists and has completed Grid account, redirect to login flow
+      if (existingUser.gridStatus === 'success' && existingUser.gridAddress) {
         return res.status(409).json({ 
-          error: 'User with this phone number already exists',
-          field: 'phoneNumber'
+          error: 'User account already completed',
+          field: 'email',
+          message: 'This user account has already been completed successfully',
+          guidance: {
+            message: 'This user already has a completed Grid account. Use the login flow instead.',
+            action: 'Use the login endpoint',
+            endpoints: {
+              initiate: '/api/users/grid/login',
+              complete: '/api/users/grid/login/complete'
+            },
+            requiredFields: ['email', 'otpCode']
+          }
         });
+      }
+      
+      // If user exists but Grid account is pending, use existing user data
+      Logger.info(`Found existing user with pending Grid account: ${email}`);
+      
+      // Use existing user data, but allow updates if provided
+      const userData = {
+        firstName: firstName || existingUser.firstName,
+        lastName: lastName || existingUser.lastName,
+        middleName: middleName || existingUser.middleName,
+        phoneNumber: phoneNumber || existingUser.phoneNumber,
+      };
+      
+      // Update user data if new values provided
+      if (firstName || lastName || middleName || phoneNumber) {
+        await prisma.user.update({
+          where: { email },
+          data: userData,
+        });
+        Logger.info(`Updated user data for: ${email}`);
+      }
+    } else {
+      // If no existing user, validate and create new user
+      if (!firstName || !lastName) {
+        return res.status(400).json({ 
+          error: 'First name and last name are required for new users',
+          field: 'firstName'
+        });
+      }
+
+      // Check if phone number already exists (if provided)
+      if (phoneNumber && phoneNumber.trim() !== '') {
+        const existingPhoneUser = await prisma.user.findFirst({
+          where: { phoneNumber },
+        });
+
+        if (existingPhoneUser) {
+          return res.status(409).json({ 
+            error: 'User with this phone number already exists',
+            field: 'phoneNumber'
+          });
+        }
       }
     }
 
     // Generate session secrets for the new account
-    const sessionSecrets = await gridClient.generateSessionSecrets();
+    let sessionSecrets;
+    try {
+      sessionSecrets = await gridClient.generateSessionSecrets();
+      Logger.info(`Generated session secrets for ${email}:`, {
+        sessionSecretsKeys: sessionSecrets ? Object.keys(sessionSecrets) : 'null',
+        sessionSecretsType: typeof sessionSecrets
+      });
+    } catch (sessionError: any) {
+      Logger.error(`Failed to generate session secrets for ${email}:`, {
+        error: sessionError,
+        message: sessionError?.message,
+        stack: sessionError?.stack
+      });
+      return res.status(500).json({
+        error: 'Failed to generate session secrets',
+        details: sessionError?.message || 'Session secrets generation failed'
+      });
+    }
 
     // Create a temporary user context for Grid SDK
     const tempUser = {
       email: email,
       grid_user_id: undefined, // Use undefined instead of null
-      signers: [], // Empty signers array for new account
+      signers: [], // Empty signers array for new account - this might be the issue
+      address: undefined,
+      session: undefined
     };
+    
+    Logger.info(`Created temp user context for ${email}:`, {
+      tempUser: tempUser,
+      otpCode: otpCode,
+      otpCodeLength: otpCode?.length,
+      otpCodeType: typeof otpCode,
+      otpCodeIsNumeric: /^\d+$/.test(otpCode || ''),
+      otpCodeIsValidFormat: /^[0-9]{6}$/.test(otpCode || '')
+    });
 
     // Try to complete Grid account authentication/creation
     let authResult;
     
-    // First try authentication (for existing accounts)
-    try {
-      Logger.info(`Attempting authentication for existing Grid account: ${email}`);
-      authResult = await gridClient.completeAuth({
-        user: tempUser,
-        otpCode,
-        sessionSecrets,
-      });
+    // Check if this is a user from the initiate flow (gridStatus: 'pending')
+    const isInitiateFlowUser = existingUser && existingUser.gridStatus === 'pending';
+    
+    if (isInitiateFlowUser) {
+      Logger.info(`User ${email} is from initiate flow (gridStatus: pending), skipping authentication and going directly to account creation`);
       
-      if (authResult?.success) {
-        Logger.info(`Successfully authenticated existing Grid account: ${email}`);
-      }
-    } catch (authError: any) {
-      Logger.warn(`Authentication failed for ${email}, trying account creation:`, {
-        error: authError,
-        message: authError?.message,
-        errorString: authError?.error
-      });
-      
-      // If authentication fails, try account creation (for new accounts)
+      // For users from initiate flow, go directly to account creation
       try {
-        Logger.info(`Attempting account creation for new Grid account: ${email}`);
+        Logger.info(`Attempting account creation for initiate flow user: ${email}`, {
+          tempUser: tempUser,
+          otpCode: otpCode,
+          otpCodeLength: otpCode?.length,
+          otpCodeIsNumeric: /^\d+$/.test(otpCode || ''),
+          sessionSecretsLength: sessionSecrets ? Object.keys(sessionSecrets).length : 0,
+          sessionSecretsKeys: sessionSecrets ? Object.keys(sessionSecrets) : []
+        });
+        
         authResult = await gridClient.completeAuthAndCreateAccount({
-          user: tempUser,
           otpCode,
+          user: tempUser,
           sessionSecrets,
         });
         
         if (authResult?.success) {
-          Logger.info(`Successfully created new Grid account: ${email}`);
+          Logger.info(`Successfully created Grid account for initiate flow user: ${email}`, {
+            authResult: authResult,
+            data: authResult?.data,
+            address: authResult?.data?.address
+          });
+        } else {
+          Logger.error(`Account creation failed for initiate flow user ${email}:`, {
+            authResult: authResult,
+            success: authResult?.success,
+            error: authResult?.error
+          });
         }
       } catch (createError: any) {
-        Logger.error('Both authentication and account creation failed:', {
-          authError: authError,
-          createError: createError,
-          email: email
+        Logger.error(`Account creation failed for initiate flow user ${email}:`, {
+          error: createError,
+          message: createError?.message,
+          errorString: createError?.error,
+          stack: createError?.stack,
+          response: createError?.response?.data,
+          status: createError?.response?.status,
+          statusText: createError?.response?.statusText
         });
         
-        // Return detailed error information
         return res.status(500).json({
-          error: 'Failed to complete Grid account setup',
-          details: 'Both authentication and account creation failed',
-          authError: authError?.message || authError?.error || 'Authentication failed',
-          createError: createError?.message || createError?.error || 'Account creation failed',
-          guidance: {
-            message: 'Unable to complete account setup. Please check your OTP code and try again.',
-            action: 'Verify OTP code and retry',
-            endpoint: '/api/users/grid/complete'
+          error: 'Failed to create Grid account',
+          details: createError?.message || createError?.error || 'Account creation failed',
+          debug: {
+            success: false,
+            hasData: false,
+            hasError: true,
+            errorType: 'initiate_flow_account_creation_failed'
           }
         });
+      }
+    } else {
+      // For other users, try authentication first, then account creation
+      Logger.info(`User ${email} is not from initiate flow, trying authentication first`);
+      
+      // First try authentication (for existing accounts)
+      try {
+        Logger.info(`Attempting authentication for existing Grid account: ${email}`, {
+          tempUser: tempUser,
+          otpCode: otpCode,
+          otpCodeLength: otpCode?.length,
+          otpCodeIsNumeric: /^\d+$/.test(otpCode || ''),
+          sessionSecretsLength: sessionSecrets ? Object.keys(sessionSecrets).length : 0,
+          sessionSecretsKeys: sessionSecrets ? Object.keys(sessionSecrets) : []
+        });
+        authResult = await gridClient.completeAuth({
+          otpCode,
+          user: tempUser,
+          sessionSecrets,
+        });
+        
+        if (authResult?.success) {
+          Logger.info(`Successfully authenticated existing Grid account: ${email}`, {
+            authResult: authResult,
+            data: authResult?.data,
+            address: authResult?.data?.address
+          });
+        } else {
+          Logger.warn(`Authentication returned unsuccessful result for ${email}:`, {
+            authResult: authResult,
+            success: authResult?.success,
+            error: authResult?.error
+          });
+          
+          // Check if the error indicates no Grid account exists
+          if (authResult?.error?.includes('No linked grid account found') || 
+              authResult?.error?.includes('no linked grid account') ||
+              authResult?.error?.includes('account not found')) {
+            Logger.info(`No Grid account found for ${email}, will try account creation`);
+            // Set authResult to null to trigger account creation
+            authResult = null;
+          }
+        }
+      } catch (authError: any) {
+        Logger.warn(`Authentication failed for ${email}, trying account creation:`, {
+          error: authError,
+          message: authError?.message,
+          errorString: authError?.error,
+          stack: authError?.stack,
+          response: authError?.response?.data,
+          status: authError?.response?.status,
+          statusText: authError?.response?.statusText
+        });
+        
+        // If authentication fails, try account creation (for new accounts)
+        try {
+          Logger.info(`Attempting account creation for new Grid account: ${email}`, {
+            tempUser: tempUser,
+            otpCode: otpCode,
+            otpCodeLength: otpCode?.length,
+            otpCodeIsNumeric: /^\d+$/.test(otpCode || ''),
+            sessionSecretsLength: sessionSecrets ? Object.keys(sessionSecrets).length : 0,
+            sessionSecretsKeys: sessionSecrets ? Object.keys(sessionSecrets) : []
+          });
+          authResult = await gridClient.completeAuthAndCreateAccount({
+            otpCode,
+            user: tempUser,
+            sessionSecrets,
+          });
+          
+          if (authResult?.success) {
+            Logger.info(`Successfully created new Grid account: ${email}`, {
+              authResult: authResult,
+              data: authResult?.data,
+              address: authResult?.data?.address
+            });
+          } else {
+            Logger.warn(`Account creation returned unsuccessful result for ${email}:`, {
+              authResult: authResult,
+              success: authResult?.success,
+              error: authResult?.error
+            });
+          }
+        } catch (createError: any) {
+          Logger.error('Both authentication and account creation failed:', {
+            authError: authError,
+            createError: createError,
+            email: email,
+            authErrorDetails: {
+              message: authError?.message,
+              error: authError?.error,
+              stack: authError?.stack,
+              response: authError?.response?.data,
+              status: authError?.response?.status
+            },
+            createErrorDetails: {
+              message: createError?.message,
+              error: createError?.error,
+              stack: createError?.stack,
+              response: createError?.response?.data,
+              status: createError?.response?.status
+            }
+          });
+          
+          // Return detailed error information
+          return res.status(500).json({
+            error: 'Failed to complete Grid account setup',
+            details: 'Both authentication and account creation failed',
+            authError: authError?.message || authError?.error || 'Authentication failed',
+            createError: createError?.message || createError?.error || 'Account creation failed',
+            guidance: {
+              message: 'Unable to complete account setup. Please check your OTP code and try again.',
+              action: 'Verify OTP code and retry',
+              endpoint: '/api/users/grid/complete'
+            }
+          });
+        }
       }
     }
 
@@ -836,46 +1062,81 @@ export const completeGridAccount = async (req: Request, res: Response) => {
       }
 
       try {
-        const user = await prisma.user.create({
-          data: {
-            email,
-            firstName: firstName || '',
-            lastName: lastName || '',
-            middleName: middleName || null,
-            phoneNumber: phoneNumber || null,
-            walletAddress, // Use extracted wallet address
-            role: 'USER',
-            isActive: true,
-            // Store Grid account data
-            gridAddress: authResult.data?.address || null,
-            gridStatus: 'success', // Default to success since authentication was successful
-            // Store Grid authentication data
-            authResult: authResult.data as any || null,
-            sessionSecrets: sessionSecrets as any || null,
-          },
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            middleName: true,
-            phoneNumber: true,
-            walletAddress: true,
-            role: true,
-            isActive: true,
-            createdAt: true,
-            updatedAt: true,
-            gridAddress: true,
-            gridStatus: true,
-            authResult: true,
-            sessionSecrets: true,
-          },
-        });
+        let user;
+        
+        if (existingUser) {
+          // Update existing user with Grid account data
+          user = await prisma.user.update({
+            where: { email },
+            data: {
+              walletAddress, // Use extracted wallet address
+              // Store Grid account data
+              gridAddress: authResult.data?.address || null,
+              gridStatus: 'success', // Default to success since authentication was successful
+              // Store Grid authentication data
+              authResult: authResult.data as any || null,
+              sessionSecrets: sessionSecrets as any || null,
+            },
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              middleName: true,
+              phoneNumber: true,
+              walletAddress: true,
+              role: true,
+              isActive: true,
+              createdAt: true,
+              updatedAt: true,
+              gridAddress: true,
+              gridStatus: true,
+              authResult: true,
+              sessionSecrets: true,
+            },
+          });
 
-        Logger.info(`Created user in database: ${email} with wallet: ${walletAddress} and Grid address: ${user.gridAddress}`);
+          Logger.info(`Updated existing user in database: ${email} with wallet: ${walletAddress} and Grid address: ${user.gridAddress}`);
+        } else {
+          // Create new user with Grid account data
+          user = await prisma.user.create({
+            data: {
+              email,
+              firstName: firstName || '',
+              lastName: lastName || '',
+              middleName: middleName || null,
+              phoneNumber: phoneNumber || null,
+              walletAddress, // Use extracted wallet address
+              role: 'USER',
+              isActive: true,
+              // Store Grid account data
+              gridAddress: authResult.data?.address || null,
+              gridStatus: 'success', // Default to success since authentication was successful
+              // Store Grid authentication data
+              authResult: authResult.data as any || null,
+              sessionSecrets: sessionSecrets as any || null,
+            },
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              middleName: true,
+              phoneNumber: true,
+              walletAddress: true,
+              role: true,
+              isActive: true,
+              createdAt: true,
+              updatedAt: true,
+              gridAddress: true,
+              gridStatus: true,
+              authResult: true,
+              sessionSecrets: true,
+            },
+          });
 
-        // Clean up temporary user data
-        (global as any).tempUserData?.delete(email);
+          Logger.info(`Created new user in database: ${email} with wallet: ${walletAddress} and Grid address: ${user.gridAddress}`);
+        }
 
         // Return user and Grid account details in the simplified format
         return res.status(201).json({ 
@@ -895,13 +1156,14 @@ export const completeGridAccount = async (req: Request, res: Response) => {
             gridStatus: user.gridStatus,
             authResult: user.authResult,
             sessionSecrets: user.sessionSecrets,
-          }
+          },
+          message: existingUser ? 'Grid account completed successfully for existing user' : 'User account created and Grid account completed successfully'
         });
       } catch (dbError) {
-        Logger.error('Database error during user creation:', dbError);
+        Logger.error('Database error during user creation/update:', dbError);
         
         res.status(500).json({ 
-          error: 'Failed to create user in database',
+          error: 'Failed to create/update user in database',
           gridAccount: {
             address: authResult.data?.address || '',
             status: 'success', // Default to success since authentication was successful
@@ -910,8 +1172,23 @@ export const completeGridAccount = async (req: Request, res: Response) => {
         });
       }
     } else {
-      Logger.error('Grid account creation failed:', authResult);
-      res.status(500).json({ error: 'Failed to create Grid account' });
+      Logger.error('Grid account creation failed2:', {
+        authResult: authResult,
+        success: authResult?.success,
+        error: authResult?.error,
+        data: authResult?.data,
+        email: email,
+        existingUser: !!existingUser
+      });
+      res.status(500).json({ 
+        error: 'Failed to create Grid account',
+        details: authResult?.error || 'Unknown error',
+        debug: {
+          success: authResult?.success,
+          hasData: !!authResult?.data,
+          hasError: !!authResult?.error
+        }
+      });
     }
   } catch (error) {
     Logger.error('Error completing Grid account:', error);
@@ -1897,6 +2174,15 @@ export const initGridAuth = async (req: Request, res: Response) => {
       });
     }
 
+    // Debug user data
+    Logger.info(`User data for ${existingUser.email}:`, {
+      id: existingUser.id,
+      gridAddress: existingUser.gridAddress,
+      gridStatus: existingUser.gridStatus,
+      hasAuthResult: !!existingUser.authResult,
+      hasSessionSecrets: !!existingUser.sessionSecrets
+    });
+
     // Initialize Grid authentication using initAuth
     const authResult = await gridClient.initAuth({
       email: existingUser.email,
@@ -1969,17 +2255,86 @@ export const completeGridAuth = async (req: Request, res: Response) => {
     // Generate session secrets for the authenticated user
     const authSessionSecrets = await gridClient.generateSessionSecrets();
 
-    // Create a temporary user context for Grid SDK
+    // Check if user has a linked Grid account
+    if (!existingUser.gridAddress) {
+      Logger.warn(`User ${existingUser.email} exists but has no linked Grid account. Attempting to complete account creation.`);
+      
+      // User exists but no Grid account - try to complete account creation
+      const tempUser = {
+        email: existingUser.email,
+        grid_user_id: undefined,
+        signers: [],
+        address: undefined,
+        session: undefined
+      };
+
+      try {
+        const authResult = await gridClient.completeAuthAndCreateAccount({
+          otpCode,
+          user: tempUser,
+          sessionSecrets: authSessionSecrets,
+        });
+
+        if (authResult?.success) {
+          Logger.info(`Successfully created Grid account for existing user: ${existingUser.email}`);
+          
+          // Update user with Grid account data
+          await prisma.user.update({
+            where: { id: existingUser.id },
+            data: {
+              walletAddress: extractWalletAddress(authResult),
+              gridAddress: authResult.data?.address || null,
+              gridStatus: 'success',
+              authResult: authResult.data as any || null,
+              sessionSecrets: authSessionSecrets as any || null,
+            }
+          });
+
+          // Generate JWT token
+          const token = generateToken(existingUser.id);
+
+          return res.status(200).json({
+            message: 'Grid account created and authentication successful',
+            token,
+            user: {
+              id: existingUser.id,
+              email: existingUser.email,
+              firstName: existingUser.firstName,
+              lastName: existingUser.lastName,
+              walletAddress: extractWalletAddress(authResult),
+              gridAddress: authResult.data?.address,
+              gridStatus: 'success',
+            }
+          });
+        } else {
+          Logger.error('Failed to create Grid account for existing user:', authResult);
+          return res.status(401).json({
+            error: 'Authentication failed',
+            details: authResult?.error || 'Failed to create Grid account',
+          });
+        }
+      } catch (createError: any) {
+        Logger.error('Error creating Grid account for existing user:', createError);
+        return res.status(401).json({
+          error: 'Authentication failed',
+          details: createError?.message || 'Failed to create Grid account',
+        });
+      }
+    }
+
+    // User has a Grid account - proceed with authentication
     const tempUser = {
       email: existingUser.email,
-      grid_user_id: existingUser.gridAddress || undefined, // Use undefined instead of null
-      signers: [], // Empty signers array for existing account
+      grid_user_id: existingUser.gridAddress,
+      signers: [],
+      address: existingUser.gridAddress,
+      session: undefined
     };
 
     // Complete Grid authentication using completeAuth
     const authResult = await gridClient.completeAuth({
-      user: tempUser,
       otpCode,
+      user: tempUser,
       sessionSecrets: authSessionSecrets,
     });
 
@@ -1990,9 +2345,6 @@ export const completeGridAuth = async (req: Request, res: Response) => {
         details: authResult?.error || 'Invalid verification code',
       });
     }
-
-    // Generate session secrets for the authenticated user
-    const sessionSecrets = await gridClient.generateSessionSecrets();
 
     // Update user with authentication data
     try {
@@ -5481,6 +5833,91 @@ export const updateTransferStatusEndpoint = async (req: Request, res: Response) 
     Logger.error('Error updating transfer status:', error);
     res.status(500).json({ 
       error: 'Failed to update transfer status',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Delete user by email address
+export const deleteUserByEmail = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+
+    if (!email) {
+      return res.status(400).json({ 
+        error: 'Email address is required' 
+      });
+    }
+
+    // Decode URL-encoded email address
+    const decodedEmail = decodeURIComponent(email);
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(decodedEmail)) {
+      return res.status(400).json({ 
+        error: 'Invalid email format' 
+      });
+    }
+
+    Logger.info(`Attempting to delete user with email: ${decodedEmail}`);
+
+    // Check if user exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email: decodedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        gridAddress: true,
+        gridStatus: true,
+        createdAt: true,
+      },
+    });
+
+    if (!existingUser) {
+      return res.status(404).json({ 
+        error: 'User not found',
+        details: `No user found with email: ${decodedEmail}`
+      });
+    }
+
+    Logger.info(`Found user to delete:`, {
+      id: existingUser.id,
+      email: existingUser.email,
+      firstName: existingUser.firstName,
+      lastName: existingUser.lastName,
+      gridAddress: existingUser.gridAddress,
+      gridStatus: existingUser.gridStatus,
+      createdAt: existingUser.createdAt
+    });
+
+    // Delete user (this will cascade delete related records due to onDelete: Cascade)
+    await prisma.user.delete({
+      where: { id: existingUser.id },
+    });
+
+    Logger.info(`Successfully deleted user: ${decodedEmail}`);
+
+    res.json({
+      message: 'User deleted successfully',
+      deletedUser: {
+        id: existingUser.id,
+        email: existingUser.email,
+        firstName: existingUser.firstName,
+        lastName: existingUser.lastName,
+        gridAddress: existingUser.gridAddress,
+        gridStatus: existingUser.gridStatus,
+        createdAt: existingUser.createdAt,
+      },
+      note: 'All related records (transfers, yield transactions, etc.) have been automatically deleted'
+    });
+
+  } catch (error) {
+    Logger.error('Error deleting user:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete user',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
