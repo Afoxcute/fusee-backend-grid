@@ -368,9 +368,10 @@ export class BlockchainService {
           // If sender's token account doesn't exist, create it
           if (!fromAccountInfo) {
             Logger.info(`Creating sender's token account: ${fromTokenAccount.toString()}`);
+            const payer = gridAccountAddress ? new PublicKey(gridAccountAddress) : fromPublicKey;
             transaction.add(
               createAssociatedTokenAccountInstruction(
-                fromPublicKey, // payer
+                payer, // payer (Grid account or sender)
                 fromTokenAccount, // associatedToken
                 fromPublicKey, // owner
                 mintPublicKey // mint
@@ -381,9 +382,10 @@ export class BlockchainService {
           // If recipient's token account doesn't exist, create it
           if (!toAccountInfo) {
             Logger.info(`Creating recipient's token account: ${toTokenAccount.toString()}`);
+            const payer = gridAccountAddress ? new PublicKey(gridAccountAddress) : fromPublicKey;
             transaction.add(
               createAssociatedTokenAccountInstruction(
-                fromPublicKey, // payer
+                payer, // payer (Grid account or sender)
                 toTokenAccount, // associatedToken
                 toPublicKey, // owner
                 mintPublicKey // mint
@@ -417,22 +419,14 @@ export class BlockchainService {
           Logger.info(`Created SPL token transfer: ${amount} tokens (${tokenAmount} raw units) with ${mintInfo.decimals} decimals`);
         } catch (tokenError) {
           Logger.error('Error creating SPL token transfer:', tokenError);
-          
-          // Fallback to SOL transfer if SPL token transfer fails
-          Logger.warn(`Falling back to SOL transfer due to SPL token error: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}`);
-          const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
-          transaction.add(
-            SystemProgram.transfer({
-              fromPubkey: fromPublicKey,
-              toPubkey: toPublicKey,
-              lamports,
-            })
-          );
+          throw new Error(`Failed to create SPL token transfer: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}`);
         }
       }
 
       // Set fee payer and recent blockhash following the guide pattern
-      transaction.feePayer = fromPublicKey;
+      // Use Grid account address as fee payer if provided, otherwise use fromAddress
+      const feePayer = gridAccountAddress ? new PublicKey(gridAccountAddress) : fromPublicKey;
+      transaction.feePayer = feePayer;
       transaction.recentBlockhash = blockhash;
 
       // Serialize transaction to base64
@@ -448,7 +442,8 @@ export class BlockchainService {
       Logger.info(`Transaction created successfully:`, {
         instructionCount: transaction.instructions.length,
         recentBlockhash: blockhash,
-        feePayer: fromPublicKey.toString(),
+        feePayer: feePayer.toString(),
+        gridAccountAddress: gridAccountAddress || 'not provided',
         base64Length: transactionBase64.length,
         isValidBase64: transactionBase64.length > 0
       });
@@ -459,7 +454,8 @@ export class BlockchainService {
       console.log(`Base64 Length: ${transactionBase64.length} characters`);
       console.log(`Instruction Count: ${transaction.instructions.length}`);
       console.log(`Recent Blockhash: ${blockhash}`);
-      console.log(`Fee Payer: ${fromPublicKey.toString()}`);
+      console.log(`Fee Payer: ${feePayer.toString()}`);
+      console.log(`Grid Account Address: ${gridAccountAddress || 'not provided'}`);
       console.log('\n--- COMPLETE BASE64 TRANSACTION ---');
       console.log(transactionBase64);
       console.log('--- END BASE64 TRANSACTION ---\n');
