@@ -2822,7 +2822,7 @@ export const prepareTransaction = async (req: Request, res: Response) => {
       
       return res.status(500).json({
         error: 'Transaction preparation failed',
-          details: transactionPayloadResponse?.error || 'Grid transaction preparation failed',
+          details: transactionPayloadResponse?.error || 'Grid transaction preparation failed2',
         fullResponse: transactionPayloadResponse,
         simulationLogs: (transactionPayloadResponse as any)?.data?.simulation_logs || null
       });
@@ -3115,13 +3115,31 @@ export const executeTransaction = async (req: Request, res: Response) => {
     // Extract data from response
     const executedTx = (executedTxResponse as any).data || executedTxResponse;
 
-    Logger.info(`Transaction executed successfully for user ${fromEmail}: ${executedTx?.signature}`);
+    // Debug: Log the full response structure to understand the signature location
+    console.log('\n🔍 GRID SDK RESPONSE DEBUG (EXECUTE TRANSACTION):');
+    console.log('├── Full executedTxResponse:', JSON.stringify(executedTxResponse, null, 2));
+    console.log('├── ExecutedTx (extracted):', JSON.stringify(executedTx, null, 2));
+    console.log('├── Signature from executedTx?.signature:', executedTx?.signature);
+    console.log('├── Signature from executedTxResponse?.signature:', (executedTxResponse as any)?.signature);
+    console.log('├── Signature from executedTxResponse?.data?.signature:', (executedTxResponse as any)?.data?.signature);
+    console.log('└── All possible signature locations checked');
+
+    // Try multiple signature extraction methods
+    let transactionSignature = executedTx?.signature || 
+                             (executedTxResponse as any)?.signature || 
+                             (executedTxResponse as any)?.data?.signature ||
+                             (executedTxResponse as any)?.result?.signature ||
+                             (executedTxResponse as any)?.transactionSignature;
+
+    console.log(`🎯 FINAL SIGNATURE EXTRACTED (EXECUTE): "${transactionSignature}"`);
+
+    Logger.info(`Transaction executed successfully for user ${fromEmail}: ${transactionSignature}`);
 
     res.status(200).json({
       message: 'Transaction executed successfully',
       transaction: {
         id: `tx_${Date.now()}`,
-        signature: executedTx?.signature || 'pending',
+        signature: transactionSignature || 'pending',
         from: {
           email: senderUser.email,
           name: `${senderUser.firstName} ${senderUser.lastName}`,
@@ -3135,7 +3153,7 @@ export const executeTransaction = async (req: Request, res: Response) => {
       },
       executionResult: {
         success: true,
-        signature: executedTx?.signature,
+        signature: transactionSignature,
         data: executedTx,
       },
       gridData: {
@@ -3404,7 +3422,7 @@ export const sendTransaction = async (req: Request, res: Response) => {
     );
 
     if (!transactionPayloadResponse?.success) {
-        Logger.error('Grid transaction preparation failed:', {
+        Logger.error('Grid transaction preparation failed3:', {
         response: transactionPayloadResponse,
         responseError: transactionPayloadResponse?.error,
         gridAddress: gridData.accountData.address,
@@ -3428,7 +3446,7 @@ export const sendTransaction = async (req: Request, res: Response) => {
       
       return res.status(500).json({
         error: 'Transaction preparation failed',
-          details: transactionPayloadResponse?.error || 'Grid transaction preparation failed',
+          details: transactionPayloadResponse?.error || 'Grid transaction preparation failed4',
         fullResponse: transactionPayloadResponse,
         simulationLogs: (transactionPayloadResponse as any)?.data?.simulation_logs || null
       });
@@ -3586,12 +3604,30 @@ export const sendTransaction = async (req: Request, res: Response) => {
     // Extract data from response
     const executedTx = (executedTxResponse as any).data || executedTxResponse;
 
+    // Debug: Log the full response structure to understand the signature location
+    console.log('\n🔍 GRID SDK RESPONSE DEBUG:');
+    console.log('├── Full executedTxResponse:', JSON.stringify(executedTxResponse, null, 2));
+    console.log('├── ExecutedTx (extracted):', JSON.stringify(executedTx, null, 2));
+    console.log('├── Signature from executedTx?.signature:', executedTx?.signature);
+    console.log('├── Signature from executedTxResponse?.signature:', (executedTxResponse as any)?.signature);
+    console.log('├── Signature from executedTxResponse?.data?.signature:', (executedTxResponse as any)?.data?.signature);
+    console.log('└── All possible signature locations checked');
+
+    // Try multiple signature extraction methods
+    let transactionSignature = executedTx?.signature || 
+                             (executedTxResponse as any)?.signature || 
+                             (executedTxResponse as any)?.data?.signature ||
+                             (executedTxResponse as any)?.result?.signature ||
+                             (executedTxResponse as any)?.transactionSignature;
+
+    console.log(`🎯 FINAL SIGNATURE EXTRACTED: "${transactionSignature}"`);
+
     // Determine token symbol
     let tokenSymbol = 'UNKNOWN';
     if (tokenMint === TOKEN_MINTS.SOL) tokenSymbol = 'SOL';
     else if (tokenMint === TOKEN_MINTS.USDC_DEVNET) tokenSymbol = 'USDC';
 
-    Logger.info(`Transaction sent successfully: ${amount} ${tokenSymbol} from ${fromAddress} to ${toAddress}, signature: ${executedTx?.signature}`);
+    Logger.info(`Transaction sent successfully: ${amount} ${tokenSymbol} from ${fromAddress} to ${toAddress}, signature: ${transactionSignature}`);
 
     // Store transfer in database
     const transferType = tokenMint === TOKEN_MINTS.SOL ? 'SOL_TRANSFER' : 'USDC_TRANSFER';
@@ -3616,7 +3652,7 @@ export const sendTransaction = async (req: Request, res: Response) => {
 
     // Update transfer status to confirmed
     await updateTransferStatus(dbTransfer.id, 'CONFIRMED', {
-      transactionSignature: executedTx?.signature,
+      transactionSignature: transactionSignature,
       blockchainResponse: executedTxResponse,
     });
 
@@ -3648,14 +3684,14 @@ export const sendTransaction = async (req: Request, res: Response) => {
       },
       executionResult: {
         success: true,
-        signature: executedTx?.signature,
+        signature: transactionSignature,
         data: executedTx,
       },
       blockchainInfo: {
         network: 'devnet',
         rpcUrl: 'https://api.devnet.solana.com',
-        signature: executedTx?.signature,
-        explorerUrl: `https://explorer.solana.com/tx/${executedTx?.signature}?cluster=devnet`,
+        signature: transactionSignature,
+        explorerUrl: transactionSignature ? `https://explorer.solana.com/tx/${transactionSignature}?cluster=devnet` : null,
       },
     });
   } catch (error) {
@@ -5676,128 +5712,7 @@ export const updateYieldTransactionStatusEndpoint = async (req: Request, res: Re
   }
 };
 
-// Get User's Transfer History
-export const getUserTransferHistory = async (req: Request, res: Response) => {
-  try {
-    const { email } = req.params;
-    const { 
-      limit = 10, 
-      offset = 0, 
-      type,
-      status,
-      tokenType,
-      startDate,
-      endDate 
-    } = req.query;
-
-    // Decode URL-encoded email address
-    const decodedEmail = decodeURIComponent(email);
-
-    // Find user by email
-    const user = await prisma.user.findUnique({
-      where: { email: decodedEmail },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        walletAddress: true,
-        gridAddress: true,
-        gridStatus: true,
-      },
-    });
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    Logger.info(`Getting transfer history for user ${email}`);
-
-    // Build where clause
-    const whereClause: any = {
-      userId: user.id,
-    };
-
-    if (type && typeof type === 'string') {
-      whereClause.type = type;
-    }
-    if (status && typeof status === 'string') {
-      whereClause.status = status;
-    }
-    if (tokenType && typeof tokenType === 'string') {
-      whereClause.tokenType = tokenType;
-    }
-    if (startDate && typeof startDate === 'string') {
-      whereClause.createdAt = { ...whereClause.createdAt, gte: new Date(startDate) };
-    }
-    if (endDate && typeof endDate === 'string') {
-      whereClause.createdAt = { ...whereClause.createdAt, lte: new Date(endDate) };
-    }
-
-    // Get transfers with pagination
-    const transfers = await (prisma as any).transfer.findMany({
-      where: whereClause,
-      orderBy: { createdAt: 'desc' },
-      take: Number(limit),
-      skip: Number(offset),
-    });
-
-    // Get total count
-    const totalCount = await (prisma as any).transfer.count({
-      where: whereClause,
-    });
-
-    Logger.info(`Retrieved ${transfers.length} transfers for user ${email}`);
-
-    res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        walletAddress: user.walletAddress,
-        gridAddress: user.gridAddress,
-      },
-      transfers: transfers.map((transfer: any) => ({
-        id: transfer.id,
-        type: transfer.type,
-        status: transfer.status,
-        fromAddress: transfer.fromAddress,
-        toAddress: transfer.toAddress,
-        tokenType: transfer.tokenType,
-        amount: transfer.amount,
-        decimals: transfer.decimals,
-        mintAddress: transfer.mintAddress,
-        transactionSignature: transfer.transactionSignature,
-        feeAmount: transfer.feeAmount,
-        priorityFee: transfer.priorityFee,
-        memo: transfer.memo,
-        errorMessage: transfer.errorMessage,
-        createdAt: transfer.createdAt,
-        updatedAt: transfer.updatedAt,
-      })),
-      pagination: {
-        limit: Number(limit),
-        offset: Number(offset),
-        total: totalCount,
-        hasMore: Number(offset) + Number(limit) < totalCount,
-      },
-      filters: {
-        type: type || null,
-        status: status || null,
-        tokenType: tokenType || null,
-        startDate: startDate || null,
-        endDate: endDate || null,
-      },
-    });
-  } catch (error) {
-    Logger.error('Error getting user transfers:', error);
-    res.status(500).json({ 
-      error: 'Failed to get user transfers',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-};
+// Note: getUserTransferHistory function removed - using Grid SDK version (getUserTransfers) instead
 
 // Update Transfer Status (for external transaction execution)
 export const updateTransferStatusEndpoint = async (req: Request, res: Response) => {

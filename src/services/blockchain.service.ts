@@ -310,6 +310,37 @@ export class BlockchainService {
       
       Logger.info(`Public keys created: from=${fromPublicKey.toString()}, to=${toPublicKey.toString()}`);
 
+      // Validate that the public keys are valid Solana addresses
+      try {
+        Logger.info(`Validating FROM public key: ${fromPublicKey.toString()}`);
+        // Test if the public key is valid by checking if it's on the curve
+        const fromKeyBytes = fromPublicKey.toBytes();
+        Logger.info(`FROM public key validation successful: ${fromPublicKey.toString()}`);
+      } catch (fromKeyError) {
+        Logger.error(`Invalid FROM public key:`, {
+          fromAddress: fromAddress,
+          fromPublicKey: fromPublicKey.toString(),
+          error: fromKeyError,
+          errorMessage: fromKeyError instanceof Error ? fromKeyError.message : 'Unknown error'
+        });
+        throw new Error(`Invalid FROM address: ${fromAddress} - ${fromKeyError instanceof Error ? fromKeyError.message : 'Not a valid Solana public key'}`);
+      }
+
+      try {
+        Logger.info(`Validating TO public key: ${toPublicKey.toString()}`);
+        // Test if the public key is valid by checking if it's on the curve
+        const toKeyBytes = toPublicKey.toBytes();
+        Logger.info(`TO public key validation successful: ${toPublicKey.toString()}`);
+      } catch (toKeyError) {
+        Logger.error(`Invalid TO public key:`, {
+          toAddress: toAddress,
+          toPublicKey: toPublicKey.toString(),
+          error: toKeyError,
+          errorMessage: toKeyError instanceof Error ? toKeyError.message : 'Unknown error'
+        });
+        throw new Error(`Invalid TO address: ${toAddress} - ${toKeyError instanceof Error ? toKeyError.message : 'Not a valid Solana public key'}`);
+      }
+
       // Get recent blockhash
       const { blockhash } = await this.connection.getLatestBlockhash('confirmed');
       Logger.info(`Latest blockhash: ${blockhash}`);
@@ -343,35 +374,111 @@ export class BlockchainService {
           tokenMint: tokenMint
         });
 
-        const mintPublicKey = new PublicKey(tokenMint);
+        // Validate mint address first
+        let mintPublicKey;
+        try {
+          Logger.info(`Validating mint address: ${tokenMint}`);
+          mintPublicKey = new PublicKey(tokenMint);
+          Logger.info(`Mint address validation successful: ${mintPublicKey.toString()}`);
+        } catch (mintError) {
+          Logger.error(`Invalid mint address:`, {
+            tokenMint: tokenMint,
+            error: mintError,
+            errorMessage: mintError instanceof Error ? mintError.message : 'Unknown error'
+          });
+          throw new Error(`Invalid mint address: ${tokenMint}`);
+        }
         
         try {
-          // Get associated token addresses
-          const fromTokenAccount = await getAssociatedTokenAddress(mintPublicKey, fromPublicKey);
-          const toTokenAccount = await getAssociatedTokenAddress(mintPublicKey, toPublicKey);
+          Logger.info(`Step 1: Getting associated token addresses for mint ${tokenMint}`);
+          Logger.info(`Step 1 Details:`, {
+            mintPublicKey: mintPublicKey.toString(),
+            fromPublicKey: fromPublicKey.toString(),
+            toPublicKey: toPublicKey.toString(),
+            tokenMint: tokenMint
+          });
+          
+          // Get associated token addresses with individual error handling
+          let fromTokenAccount, toTokenAccount;
+          
+          try {
+            Logger.info(`Step 1a: Getting FROM token account address`);
+            Logger.info(`Step 1a Parameters:`, {
+              mintPublicKey: mintPublicKey.toString(),
+              fromPublicKey: fromPublicKey.toString(),
+              mintPublicKeyBytes: Array.from(mintPublicKey.toBytes()),
+              fromPublicKeyBytes: Array.from(fromPublicKey.toBytes())
+            });
+            
+            fromTokenAccount = await getAssociatedTokenAddress(mintPublicKey, fromPublicKey, true);
+            Logger.info(`Step 1a Complete: FROM token account = ${fromTokenAccount.toString()}`);
+          } catch (fromError) {
+            Logger.error(`Step 1a Failed: Error getting FROM token account:`, {
+              error: fromError,
+              errorMessage: fromError instanceof Error ? fromError.message : 'Unknown error',
+              errorStack: fromError instanceof Error ? fromError.stack : undefined,
+              errorName: fromError instanceof Error ? fromError.name : 'Unknown',
+              mintPublicKey: mintPublicKey.toString(),
+              fromPublicKey: fromPublicKey.toString(),
+              tokenMint: tokenMint
+            });
+            
+            // Also log the error directly to console for debugging
+            console.error('Step 1a Error Details:', fromError);
+            console.error('Step 1a Error Message:', fromError instanceof Error ? fromError.message : 'Unknown error');
+            console.error('Step 1a Error Stack:', fromError instanceof Error ? fromError.stack : 'No stack trace');
+            
+            throw fromError;
+          }
+          
+          try {
+            Logger.info(`Step 1b: Getting TO token account address`);
+            toTokenAccount = await getAssociatedTokenAddress(mintPublicKey, toPublicKey, true);
+            Logger.info(`Step 1b Complete: TO token account = ${toTokenAccount.toString()}`);
+          } catch (toError) {
+            Logger.error(`Step 1b Failed: Error getting TO token account:`, {
+              error: toError,
+              errorMessage: toError instanceof Error ? toError.message : 'Unknown error',
+              errorStack: toError instanceof Error ? toError.stack : undefined,
+              errorName: toError instanceof Error ? toError.name : 'Unknown',
+              mintPublicKey: mintPublicKey.toString(),
+              toPublicKey: toPublicKey.toString(),
+              tokenMint: tokenMint
+            });
+            
+            // Also log the error directly to console for debugging
+            console.error('Step 1b Error Details:', toError);
+            console.error('Step 1b Error Message:', toError instanceof Error ? toError.message : 'Unknown error');
+            console.error('Step 1b Error Stack:', toError instanceof Error ? toError.stack : 'No stack trace');
+            
+            throw toError;
+          }
 
-          Logger.info(`Token accounts:`, {
+          Logger.info(`Step 1 Complete: Token accounts calculated:`, {
             fromTokenAccount: fromTokenAccount.toString(),
             toTokenAccount: toTokenAccount.toString(),
             mint: tokenMint
           });
 
+          Logger.info(`Step 2: Checking if token accounts exist`);
+          
           // Check if token accounts exist
           const fromAccountInfo = await this.connection.getAccountInfo(fromTokenAccount);
           const toAccountInfo = await this.connection.getAccountInfo(toTokenAccount);
 
-          Logger.info(`Token account status:`, {
+          Logger.info(`Step 2 Complete: Token account status:`, {
             fromAccountExists: !!fromAccountInfo,
-            toAccountExists: !!toAccountInfo
+            toAccountExists: !!toAccountInfo,
+            fromAccountInfo: fromAccountInfo ? 'exists' : 'missing',
+            toAccountInfo: toAccountInfo ? 'exists' : 'missing'
           });
 
           // If sender's token account doesn't exist, create it
           if (!fromAccountInfo) {
             Logger.info(`Creating sender's token account: ${fromTokenAccount.toString()}`);
-            const payer = gridAccountAddress ? new PublicKey(gridAccountAddress) : fromPublicKey;
             transaction.add(
               createAssociatedTokenAccountInstruction(
-                payer, // payer (Grid account or sender)
+                fromPublicKey, // payer
                 fromTokenAccount, // associatedToken
                 fromPublicKey, // owner
                 mintPublicKey // mint
@@ -382,10 +489,9 @@ export class BlockchainService {
           // If recipient's token account doesn't exist, create it
           if (!toAccountInfo) {
             Logger.info(`Creating recipient's token account: ${toTokenAccount.toString()}`);
-            const payer = gridAccountAddress ? new PublicKey(gridAccountAddress) : fromPublicKey;
             transaction.add(
               createAssociatedTokenAccountInstruction(
-                payer, // payer (Grid account or sender)
+                fromPublicKey, // payer
                 toTokenAccount, // associatedToken
                 toPublicKey, // owner
                 mintPublicKey // mint
@@ -393,19 +499,24 @@ export class BlockchainService {
             );
           }
 
+          Logger.info(`Step 3: Getting mint info and calculating token amount`);
+          
           // Get mint info to calculate the correct amount
           const mintInfo = await getMint(this.connection, mintPublicKey);
           const tokenAmount = Math.floor(amount * Math.pow(10, mintInfo.decimals));
 
-          Logger.info(`Creating SPL token transfer instruction:`, {
+          Logger.info(`Step 3 Complete: Mint info retrieved:`, {
             fromTokenAccount: fromTokenAccount.toString(),
             toTokenAccount: toTokenAccount.toString(),
             amount: amount,
             tokenAmount: tokenAmount,
             decimals: mintInfo.decimals,
-            mint: tokenMint
+            mint: tokenMint,
+            mintSupply: mintInfo.supply.toString()
           });
 
+          Logger.info(`Step 4: Creating SPL token transfer instruction`);
+          
           // Create SPL token transfer instruction
           transaction.add(
             createTransferInstruction(
@@ -416,17 +527,26 @@ export class BlockchainService {
             )
           );
           
+          Logger.info(`Step 4 Complete: SPL token transfer instruction added successfully`);
           Logger.info(`Created SPL token transfer: ${amount} tokens (${tokenAmount} raw units) with ${mintInfo.decimals} decimals`);
         } catch (tokenError) {
-          Logger.error('Error creating SPL token transfer:', tokenError);
-          throw new Error(`Failed to create SPL token transfer: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}`);
+          Logger.error('Error creating SPL token transfer:', {
+            error: tokenError,
+            errorMessage: tokenError instanceof Error ? tokenError.message : 'Unknown error',
+            errorStack: tokenError instanceof Error ? tokenError.stack : undefined,
+            tokenMint: tokenMint,
+            fromAddress: fromPublicKey.toString(),
+            toAddress: toPublicKey.toString(),
+            amount: amount
+          });
+          
+          // Re-throw the error instead of falling back to SOL
+          throw new Error(`SPL token transfer failed: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}`);
         }
       }
 
       // Set fee payer and recent blockhash following the guide pattern
-      // Use Grid account address as fee payer if provided, otherwise use fromAddress
-      const feePayer = gridAccountAddress ? new PublicKey(gridAccountAddress) : fromPublicKey;
-      transaction.feePayer = feePayer;
+      transaction.feePayer = fromPublicKey;
       transaction.recentBlockhash = blockhash;
 
       // Serialize transaction to base64
@@ -442,8 +562,7 @@ export class BlockchainService {
       Logger.info(`Transaction created successfully:`, {
         instructionCount: transaction.instructions.length,
         recentBlockhash: blockhash,
-        feePayer: feePayer.toString(),
-        gridAccountAddress: gridAccountAddress || 'not provided',
+        feePayer: fromPublicKey.toString(),
         base64Length: transactionBase64.length,
         isValidBase64: transactionBase64.length > 0
       });
@@ -454,8 +573,7 @@ export class BlockchainService {
       console.log(`Base64 Length: ${transactionBase64.length} characters`);
       console.log(`Instruction Count: ${transaction.instructions.length}`);
       console.log(`Recent Blockhash: ${blockhash}`);
-      console.log(`Fee Payer: ${feePayer.toString()}`);
-      console.log(`Grid Account Address: ${gridAccountAddress || 'not provided'}`);
+      console.log(`Fee Payer: ${fromPublicKey.toString()}`);
       console.log('\n--- COMPLETE BASE64 TRANSACTION ---');
       console.log(transactionBase64);
       console.log('--- END BASE64 TRANSACTION ---\n');

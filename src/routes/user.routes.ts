@@ -3086,8 +3086,8 @@ router.get('/email/:email/yield/referrer', userController.getReferrerInfo);
 router.get('/email/:email/yield/transactions', userController.getUserYieldTransactions);
 router.put('/yield/transactions/:transactionId/status', userController.updateYieldTransactionStatusEndpoint);
 
-// Transfer History Routes
-router.get('/email/:email/transfers', userController.getUserTransferHistory);
+// Transfer History Routes (using Grid SDK version)
+// Note: /email/:email/transfers route is already defined above using getUserTransfers (Grid SDK)
 router.put('/transfers/:transferId/status', userController.updateTransferStatusEndpoint);
 
 // Delete user by email
