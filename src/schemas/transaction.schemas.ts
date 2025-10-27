@@ -42,7 +42,16 @@ export const sendSolTransactionSchema = baseTransactionSchema.extend({
 
 // USDC transaction schema
 export const sendUsdcTransactionSchema = baseTransactionSchema.extend({
-  tokenMint: z.literal('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU').optional(),
+  tokenMint: z.literal('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v').optional(),
+});
+
+// Grid-to-Wallet transaction schema (Grid account to external wallet)
+export const sendGridToWalletTransactionSchema = z.object({
+  fromEmail: z.string().email('Invalid sender email address'),
+  toWalletAddress: z.string().min(1, 'Recipient wallet address is required'),
+  amount: z.string().regex(/^\d+(\.\d+)?$/, 'Amount must be a valid number'),
+  tokenMint: z.string().min(1, 'Token mint address is required'),
+  memo: z.string().optional(),
 });
 
 // Type exports
@@ -51,3 +60,4 @@ export type ExecuteTransactionInput = z.infer<typeof executeTransactionSchema>;
 export type SendTransactionInput = z.infer<typeof sendTransactionSchema>;
 export type SendSolTransactionInput = z.infer<typeof sendSolTransactionSchema>;
 export type SendUsdcTransactionInput = z.infer<typeof sendUsdcTransactionSchema>;
+export type SendGridToWalletTransactionInput = z.infer<typeof sendGridToWalletTransactionSchema>;

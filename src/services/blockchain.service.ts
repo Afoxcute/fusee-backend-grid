@@ -2,14 +2,27 @@ import { Connection, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram, Tr
 import { getAccount, getMint, createTransferInstruction, getAssociatedTokenAddress, createAssociatedTokenAccountInstruction } from '@solana/spl-token';
 import Logger from '../utils/logger';
 
-// Solana devnet RPC endpoint
-const DEVNET_RPC_URL = 'https://api.devnet.solana.com';
+// Get network configuration from environment
+const SOLANA_NETWORK = process.env.SOLANA_NETWORK || 'mainnet';
 
-// Token mint addresses
+// Solana RPC endpoints
+const MAINNET_RPC_URL = process.env.SOLANA_MAINNET_RPC || 'https://api.mainnet-beta.solana.com';
+const DEVNET_RPC_URL = process.env.SOLANA_DEVNET_RPC || 'https://api.devnet.solana.com';
+
+// Determine RPC URL based on network
+const getRpcUrl = () => {
+  return SOLANA_NETWORK === 'devnet' ? DEVNET_RPC_URL : MAINNET_RPC_URL;
+};
+
+// Get cluster name
+const CLUSTER = SOLANA_NETWORK === 'devnet' ? 'devnet' : 'mainnet-beta';
+
+// Token mint addresses based on network
 const TOKEN_MINTS = {
-  SOL: 'So11111111111111111111111111111111111111112', // Wrapped SOL
-  USDC_DEVNET: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', // Devnet USDC
-  USDC_MAINNET: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', // Mainnet USDC
+  SOL: 'So11111111111111111111111111111111111111112', // Wrapped SOL (same for both networks)
+  USDC: SOLANA_NETWORK === 'devnet' 
+    ? '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU' // Devnet USDC
+    : 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // Mainnet USDC
 };
 
 export interface TokenBalance {
@@ -37,8 +50,10 @@ export interface WalletBalances {
 export class BlockchainService {
   private connection: Connection;
 
-  constructor(rpcUrl: string = DEVNET_RPC_URL) {
-    this.connection = new Connection(rpcUrl, 'confirmed');
+  constructor(rpcUrl?: string) {
+    const url = rpcUrl || getRpcUrl();
+    this.connection = new Connection(url, 'confirmed');
+    Logger.info(`BlockchainService initialized for ${SOLANA_NETWORK} network: ${url}`);
   }
 
   /**
@@ -95,7 +110,7 @@ export class BlockchainService {
   async getUsdcBalance(walletAddress: string): Promise<TokenBalance> {
     try {
       const publicKey = new PublicKey(walletAddress);
-      const usdcMint = new PublicKey(TOKEN_MINTS.USDC_DEVNET);
+      const usdcMint = new PublicKey(TOKEN_MINTS.USDC);
       
       // Get all token accounts for this wallet
       const tokenAccounts = await this.connection.getParsedTokenAccountsByOwner(
@@ -105,7 +120,7 @@ export class BlockchainService {
 
       if (tokenAccounts.value.length === 0) {
         return {
-          mint: TOKEN_MINTS.USDC_DEVNET,
+          mint: TOKEN_MINTS.USDC,
           balance: '0',
           formattedBalance: '0.000000',
           decimals: 6,
@@ -123,7 +138,7 @@ export class BlockchainService {
       const formattedBalance = (parseFloat(balance) / Math.pow(10, decimals)).toFixed(decimals);
 
       return {
-        mint: TOKEN_MINTS.USDC_DEVNET,
+        mint: TOKEN_MINTS.USDC,
         balance,
         formattedBalance,
         decimals,
@@ -134,7 +149,7 @@ export class BlockchainService {
     } catch (error) {
       Logger.error(`Error fetching USDC balance for ${walletAddress}:`, error);
       return {
-        mint: TOKEN_MINTS.USDC_DEVNET,
+        mint: TOKEN_MINTS.USDC,
         balance: '0',
         formattedBalance: '0.000000',
         decimals: 6,
@@ -173,8 +188,7 @@ export class BlockchainService {
         // Determine symbol based on mint address
         let symbol = 'UNKNOWN';
         if (mint === TOKEN_MINTS.SOL) symbol = 'SOL';
-        else if (mint === TOKEN_MINTS.USDC_DEVNET) symbol = 'USDC';
-        else if (mint === TOKEN_MINTS.USDC_MAINNET) symbol = 'USDC';
+        else if (mint === TOKEN_MINTS.USDC) symbol = 'USDC';
 
         tokenBalances.push({
           mint,
@@ -243,7 +257,7 @@ export class BlockchainService {
           uiAmount: 0,
         },
         usdc: {
-          mint: TOKEN_MINTS.USDC_DEVNET,
+          mint: TOKEN_MINTS.USDC,
           balance: '0',
           formattedBalance: '0.000000',
           decimals: 6,
@@ -300,7 +314,9 @@ export class BlockchainService {
     toAddress: string,
     tokenMint: string,
     amount: number,
-    gridAccountAddress?: string
+    gridAccountAddress?: string,
+    feeAmount?: number,
+    feeRecipient?: string
   ): Promise<{ transaction: string } | null> {
     try {
       Logger.info(`Creating transaction: ${amount} ${tokenMint} from ${fromAddress} to ${toAddress}`);
@@ -545,6 +561,57 @@ export class BlockchainService {
         }
       }
 
+      // Add fee transfer if fee amount and recipient are provided
+      if (feeAmount && feeRecipient && tokenMint !== TOKEN_MINTS.SOL) {
+        try {
+          Logger.info(`Adding fee transfer: ${feeAmount} ${tokenMint} to ${feeRecipient}`);
+          
+          const feeRecipientPublicKey = new PublicKey(feeRecipient);
+          const feeMintPublicKey = new PublicKey(tokenMint);
+          
+          // Get associated token addresses for fee recipient
+          const fromFeeTokenAccount = await getAssociatedTokenAddress(feeMintPublicKey, fromPublicKey, true);
+          const feeRecipientTokenAccount = await getAssociatedTokenAddress(feeMintPublicKey, feeRecipientPublicKey, true);
+          
+          // Check if fee recipient token account exists
+          const feeRecipientAccountInfo = await this.connection.getAccountInfo(feeRecipientTokenAccount);
+          
+          if (!feeRecipientAccountInfo) {
+            Logger.info(`Creating fee recipient's token account: ${feeRecipientTokenAccount.toString()}`);
+            transaction.add(
+              createAssociatedTokenAccountInstruction(
+                fromPublicKey, // payer
+                feeRecipientTokenAccount, // associatedToken
+                feeRecipientPublicKey, // owner
+                feeMintPublicKey // mint
+              )
+            );
+          }
+          
+          // Get mint info to calculate the correct fee amount
+          const feeMintInfo = await getMint(this.connection, feeMintPublicKey);
+          const feeTokenAmount = Math.floor(feeAmount * Math.pow(10, feeMintInfo.decimals));
+          
+          Logger.info(`Adding fee transfer instruction: ${feeAmount} ${tokenMint} (${feeTokenAmount} raw units)`);
+          
+          // Add fee transfer instruction
+          transaction.add(
+            createTransferInstruction(
+              fromFeeTokenAccount,
+              feeRecipientTokenAccount,
+              fromPublicKey, // authority
+              feeTokenAmount
+            )
+          );
+          
+          Logger.info(`Fee transfer instruction added successfully`);
+        } catch (feeError) {
+          Logger.error('Error adding fee transfer:', feeError);
+          // Fail the entire transaction if fee transfer fails
+          throw new Error(`Fee transfer failed: ${feeError instanceof Error ? feeError.message : 'Unknown error'}`);
+        }
+      }
+
       // Set fee payer and recent blockhash following the guide pattern
       transaction.feePayer = fromPublicKey;
       transaction.recentBlockhash = blockhash;
@@ -589,3 +656,7 @@ export class BlockchainService {
 // Export singleton instance
 export const blockchainService = new BlockchainService();
 export default blockchainService;
+
+// Export network configuration
+export { TOKEN_MINTS, SOLANA_NETWORK, CLUSTER };
+

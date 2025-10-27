@@ -14,6 +14,7 @@ import {
   sendTransactionSchema,
   sendSolTransactionSchema,
   sendUsdcTransactionSchema,
+  sendGridToWalletTransactionSchema,
 } from '../schemas/transaction.schemas';
 import {
   initializeReferrerSchema,
@@ -157,9 +158,8 @@ router.post('/', validateRequest(createUserSchema), userController.createUser);
  *         required: true
  *         schema:
  *           type: string
- *           format: uuid
- *         description: User ID
- *         example: "123e4567-e89b-12d3-a456-426614174000"
+ *         description: User ID (CUID format)
+ *         example: "cmh4n25840000i64rmgbbhgi0"
  *     responses:
  *       200:
  *         description: User retrieved successfully
@@ -310,9 +310,8 @@ router.put('/:id', validateRequest(updateUserSchema), userController.updateUser)
  *         required: true
  *         schema:
  *           type: string
- *           format: uuid
- *         description: User ID
- *         example: "123e4567-e89b-12d3-a456-426614174000"
+ *         description: User ID (CUID format)
+ *         example: "cmh4n25840000i64rmgbbhgi0"
  *     responses:
  *       204:
  *         description: User deleted successfully
@@ -868,7 +867,7 @@ router.post('/grid/login/complete', validateRequest(completeLoginSchema), userCo
  * /api/users/email/{email}/balances:
  *   get:
  *     summary: Get user balances by email
- *     description: Retrieve SOL and USDC balances for a user identified by their email address (USDC on devnet). Supports filtering and pagination.
+ *     description: Retrieve SOL and USDC balances for a user identified by their email address (USDC on mainnet). Supports filtering and pagination.
  *     tags: [Users, Balances]
  *     parameters:
  *       - in: path
@@ -899,7 +898,7 @@ router.post('/grid/login/complete', validateRequest(completeLoginSchema), userCo
  *         schema:
  *           type: string
  *         description: Filter by specific token mint address
- *         example: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+ *         example: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
  *     responses:
  *       200:
  *         description: User balances retrieved successfully
@@ -933,7 +932,7 @@ router.get('/email/:email/balances', userController.getUserBalances);
  * /api/users/wallet/{walletAddress}/balances:
  *   get:
  *     summary: Get user balances by wallet address
- *     description: Retrieve SOL and USDC balances for a user identified by their wallet address (USDC on devnet). Supports filtering and pagination.
+ *     description: Retrieve SOL and USDC balances for a user identified by their wallet address (USDC on mainnet). Supports filtering and pagination.
  *     tags: [Users, Balances]
  *     parameters:
  *       - in: path
@@ -963,7 +962,7 @@ router.get('/email/:email/balances', userController.getUserBalances);
  *         schema:
  *           type: string
  *         description: Filter by specific token mint address
- *         example: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+ *         example: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
  *     responses:
  *       200:
  *         description: User balances retrieved successfully
@@ -1294,7 +1293,7 @@ router.get('/email/:email/grid-data', userController.getUserGridData);
  *                 fromEmail: "sender@example.com"
  *                 toEmail: "recipient@example.com"
  *                 amount: "10.0"
- *                 tokenMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+ *                 tokenMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
  *                 memo: "USDC payment"
  *     responses:
  *       200:
@@ -1488,7 +1487,7 @@ router.post('/transactions/execute', validateRequest(executeTransactionSchema), 
  *                 fromEmail: "sender@example.com"
  *                 toEmail: "recipient@example.com"
  *                 amount: "10.0"
- *                 tokenMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+ *                 tokenMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
  *                 memo: "USDC payment"
  *     responses:
  *       200:
@@ -1614,12 +1613,12 @@ router.post('/transactions/send-sol', validateRequest(sendSolTransactionSchema),
  *   post:
  *     summary: Send USDC transaction
  *     description: |
- *       Convenience endpoint for sending USDC transactions on devnet. This endpoint automatically
- *       sets the token mint to devnet USDC and calls the general send transaction endpoint.
+ *       Convenience endpoint for sending USDC transactions on mainnet. This endpoint automatically
+ *       sets the token mint to mainnet USDC and calls the general send transaction endpoint.
  *       
  *       **Token Details:**
  *       - Token: USDC (USD Coin)
- *       - Mint: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU (Devnet USDC)
+ *       - Mint: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v (Mainnet USDC)
  *       - Decimals: 6
  *       
  *       **Requirements:**
@@ -1691,6 +1690,118 @@ router.post('/transactions/send-usdc', validateRequest(sendUsdcTransactionSchema
 
 /**
  * @swagger
+ * /api/users/transactions/grid-to-wallet:
+ *   post:
+ *     summary: Send transaction from Grid account to external wallet
+ *     description: |
+ *       Send SOL or USDC from a Grid account to any Solana wallet address (not a Grid account).
+ *       This endpoint creates a raw transaction, prepares it with the Grid SDK, and signs/sends it.
+ *       
+ *       **Use Cases:**
+ *       - Send tokens from your Grid account to any external Solana wallet
+ *       - Withdraw funds from your Grid account to an external wallet
+ *       - Send payments to external recipients who don't have Grid accounts
+ *       
+ *       **Requirements:**
+ *       - Sender must have an active Grid account
+ *       - Recipient address must be a valid Solana wallet address
+ *       - A fixed transaction fee (0.07 USDC) applies to all transfers
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - fromEmail
+ *               - toWalletAddress
+ *               - amount
+ *               - tokenMint
+ *             properties:
+ *               fromEmail:
+ *                 type: string
+ *                 format: email
+ *                 description: Email address of the sender (must have Grid account)
+ *                 example: user@example.com
+ *               toWalletAddress:
+ *                 type: string
+ *                 description: Solana wallet address of the recipient (not a Grid account)
+ *                 example: 3eq3vYYW2NFfDxxXoJ1ogC9ED2sye39SNaXYJPqExEmZ
+ *               amount:
+ *                 type: string
+ *                 description: Amount to send (as string to preserve precision)
+ *                 example: "1.5"
+ *               tokenMint:
+ *                 type: string
+ *                 description: Token mint address (SOL or USDC)
+ *                 example: "So11111111111111111111111111111111111111112"
+ *               memo:
+ *                 type: string
+ *                 description: Optional memo for the transaction
+ *                 example: "Payment for services"
+ *     responses:
+ *       200:
+ *         description: Transaction sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Transaction sent successfully to external wallet"
+ *                 transaction:
+ *                   $ref: '#/components/schemas/Transaction'
+ *                 executionResult:
+ *                   type: object
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                     signature:
+ *                       type: string
+ *                     data:
+ *                       type: object
+ *                 blockchainInfo:
+ *                   type: object
+ *                   properties:
+ *                     network:
+ *                       type: string
+ *                       example: "mainnet"
+ *                     rpcUrl:
+ *                       type: string
+ *                       example: "https://api.mainnet-beta.solana.com"
+ *                     signature:
+ *                       type: string
+ *                     explorerUrl:
+ *                       type: string
+ *                       nullable: true
+ *                 note:
+ *                   type: string
+ *                   example: "Recipient is an external Solana wallet (not a Grid account)"
+ *       400:
+ *         description: Bad request (invalid input or missing Grid account data)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Sender user not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/transactions/grid-to-wallet', validateRequest(sendGridToWalletTransactionSchema), userController.sendGridToWallet);
+
+/**
+ * @swagger
  * /api/users/test-transaction:
  *   post:
  *     summary: Test transaction creation (debugging endpoint)
@@ -1731,7 +1842,7 @@ router.post('/transactions/send-usdc', validateRequest(sendUsdcTransactionSchema
  *               value:
  *                 fromAddress: "Gu5V8ZEDXTJk4xv5TLeoW3rHYLfCzwZNyW9DJ1ejienH"
  *                 toAddress: "FzGQeL7BSCroAGPWW9n8xwkTzWmUdk8bt78NiqBPnkzH"
- *                 tokenMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+ *                 tokenMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
  *                 amount: 10.0
  *     responses:
  *       200:
@@ -1798,7 +1909,7 @@ router.post('/test-transaction', userController.testTransactionCreation);
  *               value:
  *                 fromAddress: "Gu5V8ZEDXTJk4xv5TLeoW3rHYLfCzwZNyW9DJ1ejienH"
  *                 toAddress: "FzGQeL7BSCroAGPWW9n8xwkTzWmUdk8bt78NiqBPnkzH"
- *                 tokenMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+ *                 tokenMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
  *                 amount: 2.0
  *     responses:
  *       200:
@@ -2135,7 +2246,7 @@ router.get('/session-status/:email', userController.checkSessionStatus);
  *         schema:
  *           type: string
  *         description: Filter by specific token mint address
- *         example: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+ *         example: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
  *       - in: query
  *         name: direction
  *         schema:

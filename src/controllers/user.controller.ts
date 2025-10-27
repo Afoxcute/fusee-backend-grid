@@ -18,7 +18,7 @@ import {
 } from '../schemas/user.schemas';
 import { generateToken } from '../middleware/auth.middleware';
 import { CompleteLoginInput } from '../schemas/auth.schemas';
-import { blockchainService } from '../services/blockchain.service';
+import { blockchainService, TOKEN_MINTS } from '../services/blockchain.service';
 // Transaction schemas import
 import {
   PrepareTransactionInput,
@@ -26,6 +26,7 @@ import {
   SendTransactionInput,
   SendSolTransactionInput,
   SendUsdcTransactionInput,
+  SendGridToWalletTransactionInput,
 } from '../schemas/transaction.schemas';
 
 // Utility function to validate base64 transaction data
@@ -52,12 +53,14 @@ const validateBase64Transaction = (transactionData: string): { isValid: boolean;
   return { isValid: true };
 };
 
-// Token mint addresses
-const TOKEN_MINTS = {
-  SOL: 'So11111111111111111111111111111111111111112',
-  USDC_DEVNET: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', // Devnet USDC
-  USDC_MAINNET: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', // Mainnet USDC
-} as const;
+// Token mint addresses are now imported from blockchain service
+// They are automatically configured based on SOLANA_NETWORK environment variable
+
+// Fee configuration
+const TRANSFER_FEE = {
+  amount: 0.07, // USDC fee per transfer
+  recipientAddress: '3eq3vYYW2NFfDxxXoJ1ogC9ED2sye39SNaXYJPqExEmZ', // Fee recipient address
+};
 
 // Helper function to validate Grid client configuration
 const validateGridConfig = () => {
@@ -143,6 +146,9 @@ export const getUserById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
+    Logger.info(`Fetching user by ID: ${id}`);
+
+    // Try to find user with UUID
     const user = await prisma.user.findUnique({
       where: { id },
       select: {
@@ -165,6 +171,25 @@ export const getUserById = async (req: Request, res: Response) => {
     });
 
     if (!user) {
+      Logger.warn(`User not found with ID: ${id}`);
+      
+      // Try to find if it's an email instead
+      const emailUser = await prisma.user.findUnique({
+        where: { email: id },
+        select: { id: true, email: true },
+      });
+      
+      if (emailUser) {
+        Logger.info(`Found user by email instead: ${emailUser.email} (ID: ${emailUser.id})`);
+        return res.status(404).json({ 
+          error: 'User not found with provided ID',
+          suggestion: 'The provided value may be an email address. Try using /api/users/email/{email} instead',
+          providedValue: id,
+          foundByEmail: true,
+          userId: emailUser.id
+        });
+      }
+      
       return res.status(404).json({ error: 'User not found' });
     }
 
@@ -1285,7 +1310,7 @@ export const getUserBalances = async (req: Request, res: Response) => {
         balance: '0',
         formattedBalance: '0',
         decimals: 6,
-        mint: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+        mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
         symbol: 'USDC',
         uiAmount: 0
       },
@@ -1304,7 +1329,7 @@ export const getUserBalances = async (req: Request, res: Response) => {
     // Find USDC token in the tokens array
     if (balancesData?.tokens) {
       const usdcToken = balancesData.tokens.find((token: any) => 
-        token.token_address === '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
+        token.token_address === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
       );
       
       if (usdcToken) {
@@ -1434,7 +1459,7 @@ export const getUserBalancesByWallet = async (req: Request, res: Response) => {
         balance: '0',
         formattedBalance: '0',
         decimals: 6,
-        mint: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+        mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
         symbol: 'USDC',
         uiAmount: 0
       },
@@ -1454,7 +1479,7 @@ export const getUserBalancesByWallet = async (req: Request, res: Response) => {
     // Find USDC token in the tokens array
     if (balancesData?.tokens) {
       const usdcToken = balancesData.tokens.find((token: any) => 
-        token.token_address === '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
+        token.token_address === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
       );
       
       if (usdcToken) {
@@ -2681,7 +2706,9 @@ export const prepareTransaction = async (req: Request, res: Response) => {
       toAddress,
       tokenMint,
       parseFloat(amount),
-      gridData.accountData.address // Pass Grid account address as payer
+      gridData.accountData.address, // Pass Grid account address as payer
+      TRANSFER_FEE.amount, // Fee amount (0.07 USDC)
+      TRANSFER_FEE.recipientAddress // Fee recipient address
     );
 
     if (!transactionResult) {
@@ -2860,7 +2887,7 @@ export const prepareTransaction = async (req: Request, res: Response) => {
     // Determine token symbol
     let tokenSymbol = 'UNKNOWN';
     if (tokenMint === TOKEN_MINTS.SOL) tokenSymbol = 'SOL';
-    else if (tokenMint === TOKEN_MINTS.USDC_DEVNET) tokenSymbol = 'USDC';
+    else if (tokenMint === TOKEN_MINTS.USDC) tokenSymbol = 'USDC';
 
     Logger.info(`Transaction prepared successfully: ${amount} ${tokenSymbol} from ${fromAddress} to ${toAddress}`, {
       kmsPayloadsCount: transactionPayload.kms_payloads?.length || 0,
@@ -2903,8 +2930,8 @@ export const prepareTransaction = async (req: Request, res: Response) => {
         hasAuthData: !!gridData.authData,
       },
       blockchainInfo: {
-        network: 'devnet',
-        rpcUrl: 'https://api.devnet.solana.com',
+        network: 'mainnet',
+        rpcUrl: 'https://api.mainnet-beta.solana.com',
         fee: '5000', // Estimated fee
       },
       simulationLogs: (transactionPayload as any).simulation_logs || null,
@@ -3338,7 +3365,9 @@ export const sendTransaction = async (req: Request, res: Response) => {
       toAddress,
       tokenMint,
       parseFloat(amount),
-      gridData.accountData.address // Pass Grid account address as payer
+      gridData.accountData.address, // Pass Grid account address as payer
+      TRANSFER_FEE.amount, // Fee amount (0.07 USDC)
+      TRANSFER_FEE.recipientAddress // Fee recipient address
     );
 
     if (!transactionResult) {
@@ -3625,7 +3654,7 @@ export const sendTransaction = async (req: Request, res: Response) => {
     // Determine token symbol
     let tokenSymbol = 'UNKNOWN';
     if (tokenMint === TOKEN_MINTS.SOL) tokenSymbol = 'SOL';
-    else if (tokenMint === TOKEN_MINTS.USDC_DEVNET) tokenSymbol = 'USDC';
+    else if (tokenMint === TOKEN_MINTS.USDC) tokenSymbol = 'USDC';
 
     Logger.info(`Transaction sent successfully: ${amount} ${tokenSymbol} from ${fromAddress} to ${toAddress}, signature: ${transactionSignature}`);
 
@@ -3688,10 +3717,10 @@ export const sendTransaction = async (req: Request, res: Response) => {
         data: executedTx,
       },
       blockchainInfo: {
-        network: 'devnet',
-        rpcUrl: 'https://api.devnet.solana.com',
+        network: 'mainnet',
+        rpcUrl: 'https://api.mainnet-beta.solana.com',
         signature: transactionSignature,
-        explorerUrl: transactionSignature ? `https://explorer.solana.com/tx/${transactionSignature}?cluster=devnet` : null,
+        explorerUrl: transactionSignature ? `https://explorer.solana.com/tx/${transactionSignature}` : null,
       },
     });
   } catch (error) {
@@ -3735,7 +3764,7 @@ export const sendUsdcTransaction = async (req: Request, res: Response) => {
       fromEmail,
       toEmail,
       amount,
-      tokenMint: TOKEN_MINTS.USDC_DEVNET,
+      tokenMint: TOKEN_MINTS.USDC,
       memo,
     };
 
@@ -3745,6 +3774,258 @@ export const sendUsdcTransaction = async (req: Request, res: Response) => {
   } catch (error) {
     Logger.error('Error sending USDC transaction:', error);
     res.status(500).json({ error: 'Failed to send USDC transaction' });
+  }
+};
+
+// Send transaction from Grid account to external wallet (not a Grid account)
+export const sendGridToWallet = async (req: Request, res: Response) => {
+  try {
+    const { PublicKey } = await import('@solana/web3.js');
+    const validatedData = req.body as SendGridToWalletTransactionInput;
+    const { fromEmail, toWalletAddress, amount, tokenMint, memo } = validatedData;
+
+    // Find sender user
+    const senderUser = await prisma.user.findUnique({
+      where: { email: fromEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        walletAddress: true,
+        gridAddress: true,
+        gridStatus: true,
+        authResult: true,
+        sessionSecrets: true,
+        isActive: true,
+      },
+    });
+
+    if (!senderUser) {
+      return res.status(404).json({ error: 'Sender user not found' });
+    }
+
+    if (!senderUser.isActive) {
+      return res.status(401).json({ error: 'Sender account is inactive' });
+    }
+
+    // Check if sender has Grid account data
+    if (!senderUser.gridAddress || !(senderUser as any).authResult || !(senderUser as any).sessionSecrets) {
+      return res.status(400).json({
+        error: 'Sender does not have complete Grid account data',
+        message: 'User must have completed Grid account creation with full data storage',
+        hasGridAddress: !!senderUser.gridAddress,
+        hasAuthResult: !!(senderUser as any).authResult,
+        hasSessionSecrets: !!(senderUser as any).sessionSecrets
+      });
+    }
+
+    const fromAddress = senderUser.gridAddress;
+
+    Logger.info(`Sending Grid-to-Wallet transaction: ${amount} ${tokenMint} from ${fromEmail} (${fromAddress}) to ${toWalletAddress}`);
+
+    // Validate recipient is a valid Solana address
+    try {
+      new PublicKey(toWalletAddress);
+    } catch (error) {
+      return res.status(400).json({
+        error: 'Invalid recipient wallet address',
+        details: 'The recipient address must be a valid Solana address (base58 encoded)'
+      });
+    }
+
+    // Test blockchain connection
+    const connectionTest = await blockchainService.testConnection();
+    if (!connectionTest.success) {
+      Logger.error('Blockchain connection failed:', connectionTest.error);
+      return res.status(500).json({
+        error: 'Blockchain service unavailable',
+        details: connectionTest.error
+      });
+    }
+
+    // Construct gridData from simplified JSON fields
+    const gridData = {
+      authData: (senderUser as any).authResult,
+      sessionData: (senderUser as any).sessionSecrets,
+      accountData: {
+        address: senderUser.gridAddress,
+        status: senderUser.gridStatus,
+      },
+    };
+
+    // Create raw transaction using blockchain service with fee
+    const transactionResult = await blockchainService.createTransaction(
+      fromAddress,
+      toWalletAddress,
+      tokenMint,
+      parseFloat(amount),
+      senderUser.gridAddress,
+      TRANSFER_FEE.amount,
+      TRANSFER_FEE.recipientAddress
+    );
+
+    if (!transactionResult) {
+      return res.status(500).json({
+        error: 'Failed to create transaction',
+        details: 'Transaction creation failed'
+      });
+    }
+
+    Logger.info(`Transaction created for Grid-to-Wallet transfer: ${amount} ${tokenMint}`);
+
+    // Prepare transaction using Grid SDK
+    const transactionPayloadResponse = await gridClient.prepareArbitraryTransaction(
+      gridData.accountData.address,
+      {
+        transaction: transactionResult.transaction,
+        fee_config: {
+          currency: "sol",
+          payer_address: gridData.accountData.address
+        }
+      }
+    );
+
+    // Check if preparation was successful
+    if (!transactionPayloadResponse?.success) {
+      const responseStr = JSON.stringify(transactionPayloadResponse, null, 2);
+      Logger.error('Grid transaction preparation failed - Full Response:');
+      Logger.error(responseStr);
+      Logger.error('Error details:', {
+        responseError: (transactionPayloadResponse as any)?.error,
+        gridAddress: gridData.accountData.address,
+        transactionLength: transactionResult.transaction.length
+      });
+      
+      // Check for simulation logs in the error response
+      if ((transactionPayloadResponse as any)?.data?.simulation_logs) {
+        const simulationLogs = (transactionPayloadResponse as any).data.simulation_logs;
+        Logger.error(`Grid SDK Simulation Logs (${simulationLogs.length} logs):`);
+        
+        simulationLogs.forEach((log: string, index: number) => {
+          Logger.error(`  Error Simulation Log ${index + 1}: ${log}`);
+        });
+      }
+      
+      return res.status(500).json({
+        error: 'Transaction preparation failed',
+        details: (transactionPayloadResponse as any)?.error || 'Grid transaction preparation failed',
+        fullResponse: transactionPayloadResponse,
+        simulationLogs: (transactionPayloadResponse as any)?.data?.simulation_logs || null
+      });
+    }
+
+    const transactionPayload = transactionPayloadResponse.data;
+
+    if (!transactionPayload) {
+      Logger.error('Failed to prepare transaction - no data:', transactionPayloadResponse);
+      return res.status(500).json({
+        error: 'Transaction preparation failed',
+        details: 'No transaction payload received',
+        fullResponse: JSON.stringify(transactionPayloadResponse)
+      });
+    }
+
+    // Execute transaction with Grid SDK
+    let executedTxResponse;
+    try {
+      executedTxResponse = await gridClient.signAndSend({
+        sessionSecrets: gridData.sessionData as any,
+        session: (gridData.authData as any).authentication,
+        transactionPayload: {
+          ...transactionPayload,
+          kms_payloads: transactionPayload.kms_payloads || []
+        },
+        address: gridData.accountData.address,
+      });
+    } catch (signingError: any) {
+      Logger.error('Grid transaction signing failed:', signingError);
+      return res.status(500).json({
+        error: 'Transaction signing failed',
+        details: signingError.message || 'Unknown signing error'
+      });
+    }
+
+    // Extract transaction signature
+    const executedTx = (executedTxResponse as any).data || executedTxResponse;
+    const transactionSignature = executedTx?.signature || 
+                               (executedTxResponse as any)?.signature || 
+                               (executedTxResponse as any)?.data?.signature ||
+                               (executedTxResponse as any)?.result?.signature ||
+                               (executedTxResponse as any)?.transactionSignature;
+
+    // Determine token symbol
+    let tokenSymbol = 'UNKNOWN';
+    if (tokenMint === TOKEN_MINTS.SOL) tokenSymbol = 'SOL';
+    else if (tokenMint === TOKEN_MINTS.USDC) tokenSymbol = 'USDC';
+
+    Logger.info(`Transaction sent successfully: ${amount} ${tokenSymbol} from ${fromAddress} to ${toWalletAddress}, signature: ${transactionSignature}`);
+
+    // Store transfer in database
+    const transferType = tokenMint === TOKEN_MINTS.SOL ? 'SOL_TRANSFER' : 'USDC_TRANSFER';
+    const tokenType = tokenMint === TOKEN_MINTS.SOL ? 'SOL' : 'USDC';
+    const decimals = tokenMint === TOKEN_MINTS.SOL ? 9 : 6;
+    
+    const dbTransfer = await createTransfer(senderUser.id, transferType, {
+      fromAddress,
+      toAddress: toWalletAddress,
+      tokenType,
+      amount: parseFloat(amount),
+      decimals,
+      mintAddress: tokenMint === TOKEN_MINTS.SOL ? undefined : tokenMint,
+      serializedTransaction: transactionResult.transaction,
+      recentBlockhash: undefined,
+      feeAmount: undefined,
+      priorityFee: undefined,
+      gridResponse: transactionPayloadResponse,
+      blockchainResponse: executedTxResponse,
+      memo: memo || undefined,
+    });
+
+    // Update transfer status to confirmed
+    await updateTransferStatus(dbTransfer.id, 'CONFIRMED', {
+      transactionSignature: transactionSignature,
+      blockchainResponse: executedTxResponse,
+    });
+
+    res.status(200).json({
+      message: 'Transaction sent successfully to external wallet',
+      transaction: {
+        id: dbTransfer.id,
+        from: {
+          email: senderUser.email,
+          name: `${senderUser.firstName} ${senderUser.lastName}`,
+          gridAddress: fromAddress,
+        },
+        to: {
+          walletAddress: toWalletAddress,
+          type: 'external_wallet',
+        },
+        amount,
+        tokenMint,
+        tokenSymbol,
+        memo: memo || null,
+        status: 'sent',
+        timestamp: new Date().toISOString(),
+      },
+      executionResult: {
+        success: true,
+        signature: transactionSignature,
+        data: executedTx,
+      },
+      blockchainInfo: {
+        network: process.env.SOLANA_NETWORK || 'mainnet',
+        rpcUrl: process.env.SOLANA_NETWORK === 'devnet' 
+          ? process.env.SOLANA_DEVNET_RPC || 'https://api.devnet.solana.com'
+          : process.env.SOLANA_MAINNET_RPC || 'https://api.mainnet-beta.solana.com',
+        signature: transactionSignature,
+        explorerUrl: transactionSignature ? `https://explorer.solana.com/tx/${transactionSignature}` : null,
+      },
+      note: 'Recipient is an external Solana wallet (not a Grid account)',
+    });
+  } catch (error) {
+    Logger.error('Error sending Grid-to-Wallet transaction:', error);
+    res.status(500).json({ error: 'Failed to send transaction to external wallet' });
   }
 };
 
@@ -3776,7 +4057,10 @@ export const debugTransactionData = async (req: Request, res: Response) => {
       fromAddress,
       toAddress,
       tokenMint,
-      parseFloat(amount)
+      parseFloat(amount),
+      undefined, // gridAccountAddress not needed here
+      TRANSFER_FEE.amount, // Fee amount (0.07 USDC)
+      TRANSFER_FEE.recipientAddress // Fee recipient address
     );
 
     if (!transactionResult) {
@@ -3825,7 +4109,7 @@ export const debugTransactionData = async (req: Request, res: Response) => {
         },
         analysis: {
           isSOLTransfer: tokenMint === TOKEN_MINTS.SOL,
-          isUSDCTransfer: tokenMint === TOKEN_MINTS.USDC_DEVNET,
+          isUSDCTransfer: tokenMint === TOKEN_MINTS.USDC,
           actualTransferType: tokenMint === TOKEN_MINTS.SOL ? 'SOL' : 'USDC/SPL Token',
           transactionStructure: 'Grid account executes transaction, primary signer authorizes',
           note: 'Primary signer (wallet) authorizes Grid account to execute transaction'
@@ -3866,7 +4150,10 @@ export const testTransactionCreation = async (req: Request, res: Response) => {
       fromAddress,
       toAddress,
       tokenMint,
-      parseFloat(amount)
+      parseFloat(amount),
+      undefined, // gridAccountAddress not needed here
+      TRANSFER_FEE.amount, // Fee amount (0.07 USDC)
+      TRANSFER_FEE.recipientAddress // Fee recipient address
     );
 
     if (!transactionResult) {
@@ -3897,8 +4184,8 @@ export const testTransactionCreation = async (req: Request, res: Response) => {
       },
       blockchainInfo: {
         connectionTest: connectionTest,
-        network: 'devnet',
-        rpcUrl: 'https://api.devnet.solana.com'
+        network: 'mainnet',
+        rpcUrl: 'https://api.mainnet-beta.solana.com'
       }
     });
   } catch (error) {
@@ -5842,3 +6129,9 @@ export const deleteUserByEmail = async (req: Request, res: Response) => {
     });
   }
 };
+
+
+
+
+
+

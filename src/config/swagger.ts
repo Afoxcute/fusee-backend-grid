@@ -525,7 +525,7 @@ const options: swaggerJsdoc.Options = {
             mint: {
               type: 'string',
               description: 'Token mint address',
-              example: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+              example: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
             },
             symbol: {
               type: 'string',

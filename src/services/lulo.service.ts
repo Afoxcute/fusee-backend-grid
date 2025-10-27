@@ -167,7 +167,14 @@ class LuloService {
     );
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const errorText = await response.text();
+      Logger.error(`Lulo API error (status ${response.status}):`, {
+        url: `${this.baseUrl}/generate.transactions.deposit`,
+        status: response.status,
+        errorBody: errorText,
+        requestBody: body
+      });
+      throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
     }
 
     return await response.json();
